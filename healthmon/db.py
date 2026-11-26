@@ -188,6 +188,10 @@ class Database:
         for col, typ in wanted.items():
             if col not in cols:
                 c.execute(f"ALTER TABLE daily_metrics ADD COLUMN {col} {typ}")
+        ck = {r[1] for r in c.execute("PRAGMA table_info(checkins)")}
+        for col, typ in (("fatigue", "REAL"), ("perceived_stress", "REAL"), ("triagem", "TEXT"), ("adherence", "REAL")):
+            if col not in ck:
+                c.execute(f"ALTER TABLE checkins ADD COLUMN {col} {typ}")
 
     @contextmanager
     def conn(self) -> Iterator[sqlite3.Connection]:

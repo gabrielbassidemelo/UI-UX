@@ -299,7 +299,7 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
     @app.post("/api/objetivos")
     async def objetivos_post(request: Request):
         b = await body(request)
-        return guard(lambda: planner.add_goal(db, str(b["metrica"]), num(b, "alvo", 0, 100000, True), str(b["prazo"]), today()))
+        return guard(lambda: planner.add_goal(db, str(b["metrica"]), num(b, "alvo", 0, 100000, True), str(b["prazo"]), today(), cfg))
 
     @app.delete("/api/objetivos/{gid}")
     def objetivos_del(gid: int):

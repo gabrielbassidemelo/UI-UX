@@ -65,10 +65,19 @@ def positives(snapshot: dict[str, Any]) -> list[str]:
     return [_desc(a) for a in snapshot["avaliacoes"].values() if a["leitura"] == "favoravel"][:4]
 
 
-def day_suggestions(snapshot: dict[str, Any]) -> list[str]:
+def day_suggestions(snapshot: dict[str, Any], readiness: dict[str, Any] | None = None) -> list[str]:
     av = snapshot["avaliacoes"]
     rec = snapshot["recuperacao"]
     tips: list[str] = []
+    if readiness and readiness.get("nivel") == "parar":
+        # sintomas de alerta sobrepõem qualquer outra sugestão do dia
+        if readiness.get("urgente"):
+            return ["Você relatou sintomas de alerta hoje. Não treine e procure atendimento de urgência (SAMU 192) "
+                    "se houver dor ou pressão no peito, desmaio, falta de ar intensa ou palpitações fortes."]
+        return ["Você relatou sintomas hoje: não treine. Descanse, hidrate-se e procure avaliação profissional se piorar "
+                "ou não melhorar em poucos dias."]
+    if readiness and readiness.get("nivel") == "recuperacao":
+        rec = {**rec, "status": "atencao"}
 
     def bad(k: str) -> bool:
         return av.get(k, {}).get("leitura") == "desfavoravel"

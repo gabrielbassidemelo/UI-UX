@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from .config import Config
-from .db import Database
+from .db import Database, utcnow
 from .garmin import AuthRequired, GarminSource
 from .metrics import METRICS
 from .parse import parse_activity, parse_day
@@ -21,9 +21,16 @@ def today_local(cfg: Config) -> date:
 
 def process_day(db: Database, day: str) -> dict[str, Any]:
     raw = db.raw_for_day(day)
-    values = parse_day(raw)
+    values = parse_day(raw, day)
     if values:
         db.upsert_daily(day, values)
+    from .parse import nutrition_summary
+    ns = nutrition_summary(raw)
+    if ns:      # registro alimentar feito no Garmin Connect: entra como uma refeição-resumo, sem duplicar as suas
+        db.x("DELETE FROM meals WHERE date=? AND method='garmin'", (day,))
+        if not db.q1("SELECT 1 FROM meals WHERE date=?", (day,)):
+            db.insert("meals", {"date": day, "description": "Total registrado no Garmin Connect", **ns,
+                                "method": "garmin", "uncertainty_pct": 20.0, "created_at": utcnow()})
     acts = raw.get("activities") or []
     if isinstance(acts, dict):
         acts = next((v for v in acts.values() if isinstance(v, list)), [])
@@ -76,6 +83,27 @@ def sync_days(cfg: Config, db: Database, source: GarminSource, days: list[str],
         db.log_sync_end(sid, "erro", f"{type(e).__name__}: {e}")
         result.update(status="erro", erro=type(e).__name__, detalhe=str(e)[:300])
     return result
+
+
+def sync_range(cfg: Config, db: Database, source: Any, start: str, end: str) -> dict[str, Any]:
+    """Importa histórico por intervalo (fonte oficial). Idempotente: regravar um dia não duplica nada."""
+    sid = db.log_sync_start([start, end])
+    try:
+        fetched = source.fetch_range(start, end)
+        n = 0
+        for day, eps in fetched.items():
+            for endpoint, (status, payload) in eps.items():
+                db.save_raw(day, endpoint, status, payload)
+            if process_day(db, day):
+                n += 1
+        db.log_sync_end(sid, "ok", f"{len(fetched)} dias, {n} com dados")
+        return {"status": "ok", "dias": len(fetched), "dias_com_dados": n}
+    except AuthRequired as e:
+        db.log_sync_end(sid, "erro", f"autenticacao: {e}")
+        return {"status": "erro", "erro": "autenticacao", "detalhe": str(e)}
+    except Exception as e:  # noqa: BLE001
+        db.log_sync_end(sid, "erro", f"{type(e).__name__}: {e}")
+        return {"status": "erro", "erro": type(e).__name__, "detalhe": str(e)[:300]}
 
 
 def recent_days(cfg: Config, n: int | None = None, ref: date | None = None) -> list[str]:

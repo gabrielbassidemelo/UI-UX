@@ -36,7 +36,11 @@ def _metric_value(db: Database, metric: str, day: date) -> float | None:
     return r["v"] * scale if r and r["v"] is not None else None
 
 
-def add_goal(db: Database, metric: str, target: float, deadline: str, day: date | None = None) -> dict[str, Any]:
+def add_goal(db: Database, metric: str, target: float, deadline: str, day: date | None = None,
+             cfg: Config | None = None) -> dict[str, Any]:
+    if cfg is None:
+        from .config import load_config
+        cfg = load_config()
     if metric not in GOAL_METRICS and not metric.startswith("e1rm:"):
         raise ValueError(f"Métrica de objetivo inválida; use {list(GOAL_METRICS)} ou e1rm:<exercício>")
     day = day or date.today()
@@ -45,7 +49,16 @@ def add_goal(db: Database, metric: str, target: float, deadline: str, day: date 
         raise ValueError("O prazo precisa ser no futuro")
     start = _metric_value(db, metric, day)
     if metric == "peso":
+        from . import safety
         pf = prof.get(db)
+        stop = safety.blocked(safety.screen(db, cfg, day), "metas_peso")
+        if not pf.get("altura_cm"):
+            raise ValueError("Informe a altura no perfil antes de definir uma meta de peso.")
+        last = db.q1("SELECT MAX(date) d FROM body_measurements WHERE weight_kg IS NOT NULL AND date<=?", (day.isoformat(),))
+        if not last or not last["d"] or (day - date.fromisoformat(last["d"])).days > 14:
+            raise ValueError("Registre uma pesagem recente (últimos 14 dias) antes de definir uma meta de peso.")
+        if stop and start and target < start:
+            raise ValueError(stop)
         if pf.get("altura_cm") and target / (pf["altura_cm"] / 100) ** 2 < nut.SAFETY["imc_minimo_para_deficit"]:
             raise ValueError("Meta de peso corresponde a IMC abaixo de 18,5 (baixo peso). Converse com um profissional de saúde.")
         if start and target < start and (prof.pregnant_or_lactating(pf) or (prof.bmi(pf, start) or 99) < nut.SAFETY["imc_minimo_para_deficit"]):

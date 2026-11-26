@@ -58,6 +58,46 @@ def verification(cfg: Config | None) -> dict[str, Any]:
     return json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
 
 
+CLASSES = {"verificada": "Verificada na fonte",
+           "parcialmente_verificada": "Parcialmente verificada (publicação confirmada; parte do conteúdo não conferida)",
+           "nao_verificada": "Não verificada", "inadequada": "Inadequada para a regra"}
+ORDER = ["inadequada", "nao_verificada", "parcialmente_verificada", "verificada"]
+VERIF_FILE = Path(__file__).parent / "kb" / "verificacao.json"
+
+
+@lru_cache(maxsize=1)
+def _shipped() -> dict[str, Any]:
+    """Resultado da verificação feita no desenvolvimento (Crossref + PubMed + leitura dos resumos por modelo de IA).
+    Não é auditoria humana. Entradas sem registro contam como não verificadas."""
+    if not VERIF_FILE.exists():
+        return {"itens": {}}
+    return json.loads(VERIF_FILE.read_text(encoding="utf-8"))
+
+
+def status(key: str) -> dict[str, Any]:
+    it = _shipped().get("itens", {}).get(key)
+    return it or {"classe": "nao_verificada", "observacao": "Sem registro de verificação."}
+
+
+def failing(keys: list[str], cfg: Config | None = None) -> list[str]:
+    """Referências que NÃO atingem o nível mínimo exigido ([evidencias] nivel_minimo). Regras que dependem
+    delas ficam desabilitadas."""
+    minimum = (cfg.get("evidencias", "nivel_minimo", "parcialmente_verificada") if cfg else "parcialmente_verificada")
+    if minimum not in ORDER:
+        minimum = "verificada"
+    floor = ORDER.index(minimum)
+    return [k for k in dict.fromkeys(keys) if ORDER.index(status(k).get("classe", "nao_verificada")) < floor]
+
+
+def summary() -> dict[str, Any]:
+    ents = entries()
+    counts = {c: 0 for c in ORDER}
+    for k in ents:
+        counts[status(k).get("classe", "nao_verificada")] += 1
+    meta = {k: v for k, v in _shipped().items() if k != "itens"}
+    return {"total": len(ents), "por_classe": counts, **meta}
+
+
 def cite(keys: list[str], cfg: Config | None = None) -> list[dict[str, Any]]:
     ents, ver = entries(cfg), verification(cfg)
     out = []
@@ -69,7 +109,11 @@ def cite(keys: list[str], cfg: Config | None = None) -> list[dict[str, Any]]:
         out.append({"chave": k, "referencia": ref, "doi": e.get("doi"),
                     "url": f"https://doi.org/{e['doi']}" if e.get("doi") else None, "tipo": e["tipo"],
                     "grau": e["grau"], "resumo": e["resultados"], "limitacoes": e["limitacoes"],
-                    "verificado": bool(ver.get(k, {}).get("ok"))})
+                    "pmid": status(k).get("pmid"), "classe": status(k).get("classe", "nao_verificada"),
+                    "classe_texto": CLASSES[status(k).get("classe", "nao_verificada")],
+                    "observacao_verificacao": status(k).get("observacao"),
+                    "verificado": status(k).get("classe") == "verificada",
+                    "conferido_online": bool(ver.get(k, {}).get("ok"))})
     return out
 
 

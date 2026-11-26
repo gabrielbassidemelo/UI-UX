@@ -28,6 +28,8 @@ SAFETY = {
     "deficit_max_pct": 25.0,                # do gasto total estimado
     "imc_minimo_para_deficit": 18.5,        # abaixo disso nenhum déficit é proposto
     "imc_aviso_deficit": 20.0,              # abaixo disso o déficit fica limitado a 10%
+    "deficit_max_idoso_pct": 10.0,          # a partir de 65 anos
+    "proteina_min_idoso_g_kg": 1.2,
     "perda_max_pct_semana": 1.0,            # do peso corporal
     "piso_kcal": {"masculino": 1500, "feminino": 1200},   # piso conservador do sistema, sem supervisão
     "superavit_max_kcal": 400,
@@ -47,37 +49,50 @@ TACO_URL = "https://raw.githubusercontent.com/machine-learning-mocha/taco/main/f
 
 # ----------------------------------------------------------------------- metas
 def compute_targets(db: Database, cfg: Config, day: date | None = None) -> dict[str, Any]:
+    from . import safety
     day = day or date.today()
     p = prof.get(db)
+    scr = safety.screen(db, cfg, day)
     miss = prof.missing(db, "nutricao")["nutricao"]
+    stop = safety.blocked(scr, "metas_nutricionais")
+    if miss or stop:
+        return {"disponivel": False, "faltam": miss, "bloqueio": stop or scr["bloqueios"].get("deficit"),
+                "ocultar_calorias": bool(scr.get("ocultar_calorias"))}
     t = met.tdee(db, cfg, day)
-    if miss or not t.get("estimativa"):
-        return {"disponivel": False, "faltam": miss or ["dados para estimar o gasto energético"]}
+    if not t.get("estimativa"):
+        return {"disponivel": False, "faltam": ["dados para estimar o gasto energético"], "bloqueio": None}
     goal, sex = p["objetivo"], p["sexo"]
+    from . import kb
+    core = ["morton2018", "jager2017"] + (["garthe2011", "helms2014"] if goal == "emagrecimento" else
+                                          ["slater2019"] if goal in ("hipertrofia", "forca") else [])
+    bad_refs = kb.failing(core + met.REFS["tmb"][:2], cfg)
+    if bad_refs:
+        return {"disponivel": False, "faltam": [], "evidencia_pendente": bad_refs,
+                "bloqueio": "Metas personalizadas desabilitadas: as referências científicas que as sustentam ainda não "
+                            "foram verificadas (" + ", ".join(bad_refs) + ")."}
     w, _ = prof.current_weight(db, cfg, day.isoformat())
-    tdee, notes, refs = t["estimativa"]["kcal"], [], ["morton2018", "jager2017"]
+    tdee, notes, refs = t["estimativa"]["kcal"], list(scr["avisos"]), ["morton2018", "jager2017"]
     imc = prof.bmi(p, w)
-    blocked = None
-    if prof.pregnant_or_lactating(p):
-        blocked = ("Gestação ou amamentação: o sistema não calcula déficit nem superávit. As necessidades de energia "
-                   "e nutrientes nessa fase devem ser definidas pelo obstetra e pelo nutricionista.")
-    elif imc is not None and imc < SAFETY["imc_minimo_para_deficit"] and goal == "emagrecimento":
-        blocked = (f"Seu IMC estimado é {imc:.1f}, abaixo de 18,5 (baixo peso). O sistema não propõe déficit calórico "
-                   "nessa condição. Procure um médico ou nutricionista antes de qualquer tentativa de perder peso.")
-    if blocked:
+    old = bool(scr.get("idoso"))
+    no_deficit = safety.blocked(scr, "deficit")
+    if no_deficit and goal == "emagrecimento":
         kcal = float(tdee)
-        notes.append(blocked)
+        notes.append(no_deficit)
     elif goal == "emagrecimento":
         kcal = tdee * 0.80
         refs += ["garthe2011", "helms2014"]
-        if imc is not None and imc < SAFETY["imc_aviso_deficit"]:
-            kcal = tdee * 0.90
+        if old:
+            kcal = tdee * (1 - SAFETY["deficit_max_idoso_pct"] / 100)
+            notes.append("65 anos ou mais: déficit limitado a 10% para proteger massa muscular e óssea; perda de peso "
+                         "nessa faixa deve ser acompanhada por profissional.")
+        if scr["risco_nutricional"]["imc_proximo_do_limite"]:
+            kcal = max(kcal, tdee * 0.90)
             notes.append(f"IMC estimado de {imc:.1f}, próximo do limite de baixo peso: déficit limitado a 10%. "
                          "Converse com um profissional antes de continuar perdendo peso.")
         rate = t["peso"].get("pct_semana")
         if rate is not None and t["peso"].get("suficiente"):
             if rate < -SAFETY["perda_max_pct_semana"]:
-                kcal = tdee * 0.90
+                kcal = max(kcal, tdee * 0.90)
                 notes.append(f"Você está perdendo {abs(rate):.1f}% do peso por semana, acima do limite de 1%: "
                              "o déficit foi reduzido para proteger massa magra e recuperação.")
             elif rate > -0.25 and "adaptativa" in t["vias"]:
@@ -96,42 +111,65 @@ def compute_targets(db: Database, cfg: Config, day: date | None = None) -> dict[
         notes.append("Meta elevada até o piso de segurança (déficit máximo de 25% e mínimo absoluto do sistema).")
     ref_w = w
     h = p["altura_cm"] / 100
-    if w / h ** 2 >= 30:
+    obese = w / h ** 2 >= 30
+    if obese:
         ref_w = 25 * h ** 2
         notes.append(f"IMC ≥ 30: proteína e gordura calculadas sobre um peso de referência ({ref_w:.0f} kg, IMC 25) "
                      "para não superestimar; é uma convenção prática.")
     lo, hi, mid = PROTEIN[goal]
+    if old:
+        mid = max(mid, SAFETY["proteina_min_idoso_g_kg"])
     protein = min(mid, SAFETY["proteina_max_g_kg"]) * ref_w
+
+    # Disponibilidade energética (critério de atletas; não se aplica com IMC ≥ 30). Só usa medidas até o dia.
+    ea_info = None
+    bf = db.q1("SELECT body_fat_pct FROM body_measurements WHERE body_fat_pct IS NOT NULL AND date<=? "
+               "ORDER BY date DESC LIMIT 1", (day.isoformat(),))
+    if bf and not obese:
+        ffm = w * (1 - bf["body_fat_pct"] / 100)
+        ex = db.q1("SELECT AVG(calories_active) v FROM daily_metrics WHERE date BETWEEN ? AND ? AND calories_active IS NOT NULL",
+                   ((day - timedelta(days=13)).isoformat(), day.isoformat()))
+        if ex and ex["v"]:
+            ea = (kcal - ex["v"] * 0.5) / ffm   # convenção: metade das calorias ativas do vestível tratada como exercício
+            ea_info = {"kcal_kg_mlg": round(ea, 1), "aproximada": True}
+            if ea < SAFETY["disponibilidade_energetica_min"] and kcal < tdee:
+                kcal = float(tdee)              # o déficit é efetivamente removido, não só comentado
+                notes.append("Disponibilidade energética estimada abaixo de 30 kcal/kg de massa magra: o déficit foi "
+                             "removido. Procure orientação profissional antes de reduzir calorias.")
+                refs.append("mountjoy2018")
     fat = max(0.25 * kcal / 9, SAFETY["gordura_min_g_kg"] * ref_w)
     carb = max(0.0, (kcal - protein * 4 - fat * 9) / 4)
     if carb < 100:
         notes.append("Carboidrato calculado abaixo de 100 g/dia: reveja com um nutricionista se pretende manter.")
+    if scr["risco_nutricional"]["ingestao_muito_baixa"]:
+        notes.append("Atenção: a ingestão que você registrou está bem abaixo do seu gasto de repouso estimado há duas "
+                     "semanas. Se o registro está completo, isso é pouco para sustentar saúde e treino; converse com "
+                     "um profissional.")
     meals = int(p.get("refeicoes_dia", 4))
+    fib = [v for ref, v in (("who2023carb", 25.0), ("iom2005", 14 * kcal / 1000)) if not kb.failing([ref], cfg)]
+    fiber = round(max(fib)) if fib else None
+    pend = kb.failing(["iom2005", "who2023carb", "efsa2010"], cfg)
+    if pend:
+        notes.append("Sem meta de " + " e ".join(x for x, r in (("fibra por caloria", "iom2005"), ("água", "efsa2010")) if r in pend)
+                     + ": a referência correspondente ainda não foi verificada na fonte.") if any(r in pend for r in ("iom2005", "efsa2010")) else None
     out = {
         "disponivel": True, "objetivo": goal, "kcal": round(kcal / 10) * 10, "tdee": t["estimativa"],
         "balanco_kcal": round(kcal - tdee), "proteina_g": round(protein), "proteina_faixa_g_kg": [lo, hi],
-        "gordura_g": round(fat), "carboidrato_g": round(carb), "fibra_g": round(max(25, 14 * kcal / 1000)),
-        "agua_ml": round(35 * w / 50) * 50, "refeicoes": meals,
+        "gordura_g": round(fat), "carboidrato_g": round(carb), "fibra_g": fiber,
+        "agua_ml": None if (scr.get("sem_meta_de_agua") or kb.failing(["efsa2010"], cfg)) else round(35 * w / 50) * 50,
+        "refeicoes": meals,
         "por_refeicao": {"proteina_g": round(protein / meals), "alvo_g_kg": 0.4,
                          "texto": f"~{round(protein / meals)} g de proteína em cada uma das {meals} refeições"},
         "observacoes": notes + ([t["sub_registro"]["texto"]] if t.get("sub_registro") else []),
-        "bloqueio": blocked, "imc": round(imc, 1) if imc else None, "confianca": t["estimativa"]["confianca"], "refs": refs + ["iom2005", "who2023carb", "efsa2010", "schoenfeld2018meal"],
+        "bloqueio": no_deficit if goal == "emagrecimento" else None, "imc": round(imc, 1) if imc else None,
+        "confianca": t["estimativa"]["confianca"],
+        "refs": [r for r in refs + ["iom2005", "who2023carb", "efsa2010", "schoenfeld2018meal"] if not kb.failing([r], cfg)],
         "limitacoes": "Metas derivadas de estimativas de gasto com incerteza de centenas de kcal; o ajuste fino vem da "
-                      "evolução do seu peso em semanas. Água: referência geral de ~35 ml/kg, maior com calor e treino.",
+                      "evolução do seu peso em semanas. Água: ~35 ml/kg é uma regra prática de uso comum, não um valor da "
+                      "EFSA (que indica 2,0–2,5 L/dia de água total para adultos); a necessidade sobe com calor e treino.",
     }
-    bf = db.q1("SELECT body_fat_pct FROM body_measurements WHERE body_fat_pct IS NOT NULL ORDER BY date DESC LIMIT 1")
-    if bf:
-        ffm = w * (1 - bf["body_fat_pct"] / 100)
-        ex = db.q1("SELECT AVG(calories_active) v FROM daily_metrics WHERE date>=? AND calories_active IS NOT NULL",
-                   ((day - timedelta(days=13)).isoformat(),))
-        if ex and ex["v"]:
-            ea = (kcal - ex["v"] * 0.5) / ffm   # só ~metade das calorias ativas do vestível é tratada como exercício
-            out["disponibilidade_energetica"] = {"kcal_kg_mlg": round(ea, 1), "aproximada": True}
-            if ea < SAFETY["disponibilidade_energetica_min"]:
-                out["observacoes"].append("Disponibilidade energética estimada abaixo de 30 kcal/kg de massa magra: "
-                                          "faixa associada a prejuízos de saúde e desempenho. Reduza o déficit e "
-                                          "procure orientação profissional.")
-                out["refs"].append("mountjoy2018")
+    if ea_info:
+        out["disponibilidade_energetica"] = ea_info
     return out
 
 

@@ -107,7 +107,8 @@ def populate_phase2(db: Database, cfg, days: int = 60, end: date | None = None) 
     profile.update(db, {"sexo": "masculino", "nascimento": "1988-05-10", "altura_cm": 180, "objetivo": "emagrecimento",
                         "experiencia": "intermediario", "dias_treino": 4, "minutos_sessao": 60, "equipamento": "academia",
                         "limitacoes": [], "condicoes_saude": [], "medicamentos": [], "liberacao_medica": True,
-                        "restricoes_alimentares": [], "refeicoes_dia": 4, "cafeina_habitual_mg": 200})
+                        "restricoes_alimentares": [], "refeicoes_dia": 4, "cafeina_habitual_mg": 200,
+                        **{k: False for k in __import__("healthmon.safety", fromlist=["TRIAGE"]).TRIAGE}})
     for name, k, pr, c, f, fi, portion in [("Arroz, tipo 1, cozido", 128, 2.5, 28.1, 0.2, 1.6, 150), ("Frango, peito, sem pele, grelhado", 159, 32, 0, 2.5, 0, 120),
                                            ("Feijão, carioca, cozido", 76, 4.8, 13.6, 0.5, 8.5, 100), ("Banana, prata, crua", 98, 1.3, 26, 0.1, 2, 100),
                                            ("Ovo, de galinha, inteiro, cozido", 146, 13.3, 0.6, 9.5, 0, 50), ("Azeite, de oliva, extra virgem", 884, 0, 0, 100, 0, 10),

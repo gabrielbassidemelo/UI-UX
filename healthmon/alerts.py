@@ -35,6 +35,9 @@ def evaluate(cfg: Config, db: Database, day: date) -> list[int]:
     cooldown = float(cfg.get("notificacoes", "cooldown_horas", 72))
     w = int(cfg.get("analise", "janela_base_dias", 28))
     mn = int(cfg.get("analise", "minimo_dias_base", 10))
+    from . import calibration
+    if not calibration.stage(db, day)["permite"]["alertas_de_tendencia"]:
+        return []                       # primeiros 7 dias: só observação
     store = an.load_store(db, day, w + 60)
     created: list[int] = []
 

@@ -50,6 +50,7 @@ METRICS: dict[str, Metric] = {m.key: m for m in [
     Metric("bb_charged", "Body Battery recarregado", "", "alto", "estresse"),
     Metric("bb_drained", "Body Battery gasto", "", "neutro", "estresse"),
     Metric("resp_waking_avg", "Respiração acordado", "rpm", "neutro", "estresse", casas=1),
+    Metric("resp_avg", "Respiração média do dia", "rpm", "neutro", "estresse", casas=1),
     Metric("spo2_avg", "SpO2 média do dia", "%", "neutro", "estresse"),
     # Recuperação
     Metric("training_readiness", "Prontidão para treino", "", "alto", "recuperacao"),
@@ -59,6 +60,7 @@ METRICS: dict[str, Metric] = {m.key: m for m in [
     Metric("distance_m", "Distância", "km", "neutro", "atividade", casas=1),
     Metric("calories_total", "Calorias totais", "kcal", "neutro", "atividade"),
     Metric("calories_active", "Calorias ativas", "kcal", "neutro", "atividade"),
+    Metric("calories_resting", "Calorias de repouso (Garmin)", "kcal", "neutro", "atividade"),
     Metric("intensity_minutes", "Minutos de intensidade", "min", "alto", "atividade"),
     Metric("floors", "Andares subidos", "", "neutro", "atividade"),
     Metric("training_load", "Carga de treino (soma)", "", "neutro", "atividade"),

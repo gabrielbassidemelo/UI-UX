@@ -36,7 +36,21 @@ FIELDS: dict[str, tuple[type, Any, str]] = {
     "condicoes_saude": (list, None, "Condições de saúde diagnosticadas"),
     "medicamentos": (list, None, "Medicamentos em uso"),
     "liberacao_medica": (bool, None, "Tem liberação médica para exercício intenso?"),
-    "gestante_ou_lactante": (bool, None, "Está grávida ou amamentando?"),
+    "gestante_ou_lactante": (bool, None, "Está grávida, amamentando ou teve parto nos últimos 12 meses?"),
+    "transtorno_alimentar": (bool, None, "Tem ou já teve transtorno alimentar?"),
+    "doenca_cardiovascular": (bool, None, "Doença cardiovascular ou marca-passo?"),
+    "doenca_renal": (bool, None, "Doença nos rins?"),
+    "doenca_hepatica": (bool, None, "Doença no fígado?"),
+    "diabetes": (bool, None, "Diabetes?"),
+    "usa_insulina_ou_hipoglicemiante": (bool, None, "Usa insulina ou hipoglicemiante?"),
+    "usa_medicamento_fc": (bool, None, "Usa remédio que altera os batimentos?"),
+    "usa_anticoagulante": (bool, None, "Usa anticoagulante ou antiagregante?"),
+    "usa_psiquiatrico_ou_estimulante": (bool, None, "Usa antidepressivo, lítio ou estimulante?"),
+    "usa_levotiroxina": (bool, None, "Usa levotiroxina?"),
+    "usa_diuretico": (bool, None, "Usa diurético?"),
+    "cirurgia_recente": (bool, None, "Cirurgia nos últimos 6 meses ou reabilitação?"),
+    "alergia_leite": (bool, None, "Alergia a leite ou intolerância à lactose?"),
+    "alergia_peixe": (bool, None, "Alergia a peixe ou frutos do mar?"),
     "restricoes_alimentares": (list, None, "Restrições/preferências alimentares"),
     "refeicoes_dia": (int, (2, 8), "Refeições por dia"),
     "fc_max_medida": (float, (120, 230), "FC máxima medida em teste (opcional)"),
@@ -44,7 +58,8 @@ FIELDS: dict[str, tuple[type, Any, str]] = {
     "orcamento_alimentar_dia": (float, (0, 1000), "Orçamento alimentar diário em R$ (opcional)"),
 }
 MIN_AGE = 18
-PREGNANCY_TERMS = ("gestante", "gestacao", "gravid", "lactante", "lactacao", "amament")
+PREGNANCY_TERMS = ("gestante", "gestacao", "gravid", "gravd", "lactante", "lactacao", "amament", "pos-parto", "pos parto",
+                   "puerper", "pregnan")
 
 
 def pregnant_or_lactating(p: dict[str, Any]) -> bool:
@@ -60,19 +75,46 @@ def bmi(p: dict[str, Any], weight_kg: float | None) -> float | None:
     return weight_kg / (p["altura_cm"] / 100) ** 2
 
 
-REQUIRED = {
+REQUIRED = {   # sexo, nascimento e altura valem para todas as áreas, assim como a triagem (safety.TRIAGE)
     "metabolismo": ["sexo", "nascimento", "altura_cm"],
-    "treino": ["objetivo", "experiencia", "dias_treino", "minutos_sessao", "equipamento", "limitacoes",
-               "liberacao_medica"],
+    "treino": ["sexo", "nascimento", "altura_cm", "objetivo", "experiencia", "dias_treino", "minutos_sessao", "equipamento",
+               "limitacoes", "liberacao_medica"],
     "nutricao": ["sexo", "nascimento", "altura_cm", "objetivo"],
-    "suplementacao": ["objetivo", "condicoes_saude", "medicamentos", "restricoes_alimentares"],
+    "suplementacao": ["sexo", "nascimento", "altura_cm", "objetivo", "condicoes_saude", "medicamentos", "restricoes_alimentares",
+                      "cafeina_habitual_mg"],
 }
+
+
+LIMITATIONS = {   # seleção fechada por região; sinônimos comuns são convertidos
+    "ombro": ("ombro", "manguito", "supraespinh", "clavicula", "luxacao do ombro"),
+    "joelho": ("joelho", "menisco", "lca", "lcp", "ligamento cruzado", "patel", "condromalacia"),
+    "lombar": ("lombar", "lombalgia", "hernia", "coluna", "ciatic", "disco"),
+    "punho": ("punho", "tunel do carpo", "mao"),
+    "quadril": ("quadril", "bursite trocant", "impacto femoroacetabular", "virilha"),
+}
+
+
+def normalize_limitations(items: list[str]) -> list[str]:
+    import unicodedata
+    out: list[str] = []
+    for it in items:
+        t = "".join(c for c in unicodedata.normalize("NFD", str(it).lower()) if unicodedata.category(c) != "Mn")
+        hit = [region for region, terms in LIMITATIONS.items() if any(term in t for term in terms)]
+        if not hit:
+            raise ValueError(f"Limitação não reconhecida: '{it}'. Escolha entre {', '.join(LIMITATIONS)}; para outras "
+                             "situações (ex.: pós-operatório), marque 'cirurgia recente ou reabilitação' na triagem.")
+        out += [h for h in hit if h not in out]
+    return out
 
 
 def validate(field: str, value: Any) -> Any:
     if field not in FIELDS:
         raise ValueError(f"Campo desconhecido: {field}")
     typ, rule, _ = FIELDS[field]
+    if field == "limitacoes":
+        if isinstance(value, str):
+            value = [v.strip() for v in value.split(",") if v.strip()]
+        return normalize_limitations(list(value))
     if typ is list:
         if isinstance(value, str):
             value = [v.strip() for v in value.split(",") if v.strip()]
@@ -134,10 +176,11 @@ def age(p: dict[str, Any], today: date | None = None) -> int | None:
 def missing(db: Database, area: str | None = None) -> dict[str, list[str]]:
     p = get(db)
     areas = [area] if area else list(REQUIRED)
+    from .safety import TRIAGE
     out = {a: [f for f in REQUIRED[a] if f not in p] for a in areas}
-    if p.get("sexo") == "feminino" and "gestante_ou_lactante" not in p:   # pergunta obrigatória para mulheres
-        for a in out:
-            out[a].append("gestante_ou_lactante")
+    for a in out:
+        if a != "metabolismo":                    # a triagem é obrigatória para qualquer pessoa
+            out[a] += [k for k in TRIAGE if k not in p and k not in out[a]]
     return out
 
 

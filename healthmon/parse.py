@@ -91,37 +91,175 @@ def find_dict(obj: Any, keys: tuple[str, ...], depth: int = 0) -> dict | None:
     return None
 
 
-def parse_official_extras(raw: dict[str, Any]) -> dict[str, Any]:
-    """Campos vindos dos endpoints da Personal API oficial (formato lido defensivamente)."""
+def _iso_local(v: Any) -> str | None:
+    """Carimbo local da Garmin → 'AAAA-MM-DDTHH:MM'. A API oficial usa texto ISO sem fuso; a antiga, ms."""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return _ts_local(v)
+    s_ = str(v).replace(" ", "T")
+    return s_[:16] if len(s_) >= 16 and s_[4] == "-" else None
+
+
+def _day_item(payload: Any, day: str | None, date_keys: tuple[str, ...]) -> dict | None:
+    """Em listas por intervalo, escolhe o item do dia pedido (nunca o de outro dia)."""
+    items = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), list) else payload
+    if isinstance(items, dict):
+        items = [items]
+    if not isinstance(items, list):
+        return None
+    cands = [i for i in items if isinstance(i, dict)]
+    if day:
+        for i in cands:
+            if any(str(i.get(k, ""))[:10] == day for k in date_keys):
+                return i
+        return cands[0] if len(cands) == 1 and not any(i.get(k) for i in cands for k in date_keys) else None
+    return cands[0] if cands else None
+
+
+def parse_official(raw: dict[str, Any], day: str | None = None) -> dict[str, Any]:
+    """Leitura conforme a especificação OpenAPI oficial da Garmin Connect Personal API (v1.0.0).
+
+    Regras: campo ausente ou nulo vira ausência (None), nunca zero. Se o resumo diário disser que
+    não há dados de bem-estar (`includesWellnessData` falso), passos, calorias, estresse e afins do
+    dia são tratados como ausentes, mesmo que venham zerados."""
     out: dict[str, Any] = {}
-    hr = find_dict(raw.get("heart_rate"), ("restingHeartRate", "minHeartRate")) or {}
-    out["resting_hr"] = num(hr.get("restingHeartRate"))
-    out["min_hr"] = num(hr.get("minHeartRate"))
-    out["max_hr"] = num(hr.get("maxHeartRate"))
-    bb = find_dict(raw.get("body_battery"), ("charged", "drained", "bodyBatteryValuesArray")) or {}
-    out["bb_charged"], out["bb_drained"] = num(bb.get("charged")), num(bb.get("drained"))
-    vals = [num(v[-1]) for v in (bb.get("bodyBatteryValuesArray") or [])
-            if isinstance(v, (list, tuple)) and v and num(v[-1]) is not None]
-    if vals:
-        out["bb_max"], out["bb_min"] = max(vals), min(vals)
-    st = find_dict(raw.get("stress"), ("overallStressLevel", "averageStressLevel", "avgStressLevel")) or {}
-    out["stress_avg"] = num(pick(st, "overallStressLevel", "averageStressLevel", "avgStressLevel"))
-    out["stress_high_seconds"] = num(st.get("highStressDuration"))
-    w = find_dict(raw.get("weight"), ("weight",)) or {}
-    wv = num(w.get("weight"))
-    if wv:
-        out["weight_kg"] = round(wv / 1000, 2) if wv > 500 else wv   # Garmin Connect usa gramas
-        out["body_fat_pct"] = num(w.get("bodyFat"))
-        mm = num(w.get("muscleMass"))
-        out["muscle_kg"] = (round(mm / 1000, 2) if mm and mm > 500 else mm)
-    hy = find_dict(raw.get("hydration"), ("valueInML",)) or {}
-    out["water_ml"] = num(hy.get("valueInML"))
+    s = _day_item(raw.get("daily_summary"), day, ("calendarDate",)) or {}
+    wellness = s.get("includesWellnessData") is not False
+    if s and wellness:
+        g = lambda path: num(_get(s, path))  # noqa: E731
+        out.update({
+            "steps": g("movement.steps.value"), "steps_goal": g("movement.steps.goal"),
+            "distance_m": g("movement.steps.distanceInMeters"), "floors": g("movement.floorsAscended.value"),
+            "calories_total": g("calories.burnedTotal"), "calories_active": g("calories.burnedActive"),
+            "calories_resting": g("calories.burnedResting"),
+            "resting_hr": g("heartRate.restingValue"), "min_hr": g("heartRate.minValue"), "max_hr": g("heartRate.maxValue"),
+            "stress_avg": g("stress.avgLevel"), "stress_max": g("stress.maxLevel"),
+            "bb_max": g("bodyBattery.maxValue"), "bb_min": g("bodyBattery.minValue"),
+            "bb_charged": g("bodyBattery.chargedValue"), "bb_drained": g("bodyBattery.drainedValue"),
+            "resp_avg": g("respiration.avgValue"), "spo2_avg": g("pulseOx.avgValue"),
+            "water_ml": g("hydration.consumedInFractionalMl"),
+        })
+        for key, path in (("stress_high_seconds", "stress.highStressDurationInMillis"),
+                          ("stress_rest_seconds", "stress.restDurationInMillis")):
+            v = g(path)
+            out[key] = v / 1000 if v is not None else None          # a especificação dá durações em ms
+        mod, vig = g("intensityMinutes.moderate"), g("intensityMinutes.vigorous")
+        if mod is not None or vig is not None:
+            out["intensity_minutes"] = (mod or 0) + 2 * (vig or 0)
+        # Sem tempo de uso registrado, zeros de movimento/calorias significam "pulseira não usada"
+        if (g("wellnessChronology.totalDurationInMillis") or 0) == 0 and not out.get("steps"):
+            for k in ("steps", "distance_m", "floors", "calories_active", "intensity_minutes"):
+                out.pop(k, None)
+
+    sl = _day_item(raw.get("sleep"), day, ("calendarDate",)) or {}
+    if isinstance(sl.get("dailySleepDTO"), dict):                    # formato antigo embrulhado
+        sl = sl["dailySleepDTO"]
+    if num(sl.get("sleepTimeSeconds")):
+        out.update({
+            "sleep_seconds": num(sl.get("sleepTimeSeconds")), "deep_seconds": num(sl.get("deepSleepSeconds")),
+            "light_seconds": num(sl.get("lightSleepSeconds")), "rem_seconds": num(sl.get("remSleepSeconds")),
+            "awake_seconds": num(sl.get("awakeSleepSeconds")), "awake_count": num(sl.get("awakeCount")),
+            "sleep_score": num(pick(sl, "sleepScores.overall.value")),
+            "sleep_resp_avg": num(sl.get("averageRespirationValue")),
+            "sleep_spo2_avg": num(sl.get("averageSpO2Value")), "sleep_spo2_low": num(sl.get("lowestSpO2Value")),
+            "sleep_stress_avg": num(sl.get("avgSleepStress")),
+            "sleep_start": _iso_local(sl.get("sleepStartTimestampLocal")),
+            "sleep_end": _iso_local(sl.get("sleepEndTimestampLocal")),
+        })
+        if sl.get("deviceRemCapable") is False:
+            out["rem_seconds"] = None                                 # aparelho não mede REM: ausência, não zero
+
+    hrv = _day_item(raw.get("hrv"), day, ("calendarDate",)) or {}
+    hs = hrv.get("hrvSummary") if isinstance(hrv.get("hrvSummary"), dict) else hrv
+    if hs:
+        out["hrv_last_night"] = num(hs.get("lastNightAvg"))
+        out["hrv_weekly_avg"] = num(hs.get("weeklyAvg"))
+        out["hrv_status"] = hs.get("status")
+        out["hrv_baseline_low"] = num(pick(hs, "baseline.balancedLow"))
+        out["hrv_baseline_high"] = num(pick(hs, "baseline.balancedUpper"))
+
+    # Endpoints dedicados (usados na validação e como complemento quando o resumo não traz o campo)
+    hr = raw.get("heart_rate") if isinstance(raw.get("heart_rate"), dict) else {}
+    for k, f in (("resting_hr", "restingHeartRate"), ("min_hr", "minHeartRate"), ("max_hr", "maxHeartRate")):
+        if out.get(k) is None:
+            out[k] = num(hr.get(f))
+    bb = _day_item(raw.get("body_battery"), day, ("date",)) or {}
+    if out.get("bb_charged") is None:
+        out["bb_charged"], out["bb_drained"] = num(bb.get("charged")), num(bb.get("drained"))
+    if out.get("bb_max") is None and bb.get("bodyBatteryValuesArray"):
+        idx = next((d_.get("bodyBatteryValueDescriptorIndex") for d_ in bb.get("bodyBatteryValueDescriptorDTOList") or []
+                    if d_.get("bodyBatteryValueDescriptorKey") == "bodyBatteryLevel"), None)
+        vals = [num(r[idx]) for r in bb["bodyBatteryValuesArray"]
+                if idx is not None and isinstance(r, list) and len(r) > idx and num(r[idx]) is not None]
+        if vals:
+            out["bb_max"], out["bb_min"] = max(vals), min(vals)
+    st = (_day_item(raw.get("stress"), day, ("calendarDate",)) or {}).get("values") or {}
+    if out.get("stress_avg") is None:
+        out["stress_avg"] = num(st.get("overallStressLevel"))
+    if out.get("stress_high_seconds") is None:
+        out["stress_high_seconds"] = num(st.get("highStressDuration"))          # este endpoint usa segundos
+    sp = raw.get("spo2") if isinstance(raw.get("spo2"), dict) else {}
+    if out.get("spo2_avg") is None:
+        out["spo2_avg"] = num(sp.get("averageSpO2"))
+    if out.get("sleep_spo2_avg") is None:
+        out["sleep_spo2_avg"] = num(sp.get("avgSleepSpO2"))
+
+    mm = _day_item(raw.get("max_metrics"), None, ()) or {}
+    gen = mm.get("generic") if isinstance(mm.get("generic"), dict) else {}
+    out["vo2max"] = num(gen.get("vo2MaxPreciseValue")) or num(gen.get("vo2MaxValue"))
+
+    ws = raw.get("weight") if isinstance(raw.get("weight"), dict) else {}
+    for summ in ws.get("dailyWeightSummaries") or []:
+        if day and str(summ.get("summaryDate", ""))[:10] != day:
+            continue
+        ms = [m for m in summ.get("allWeightMetrics") or [] if isinstance(m, dict) and num(m.get("weight"))]
+        if ms:
+            m = ms[-1]
+            wv = num(m["weight"])
+            out["weight_kg"] = round(wv / 1000, 2) if wv > 500 else wv   # especificação: kg; API antiga: gramas
+            out["body_fat_pct"] = num(m.get("bodyFat"))
+            mu = num(m.get("muscleMass"))
+            out["muscle_kg"] = (round(mu / 1000, 2) if mu and mu > 500 else mu)
+
+    acts = raw.get("activities")
+    if isinstance(acts, list):
+        loads = [num(a.get("activityTrainingLoad")) for a in acts if isinstance(a, dict)]
+        out["activity_count"] = float(len(acts))
+        known = [x for x in loads if x is not None]
+        out["training_load"] = round(sum(known), 1) if known else (0.0 if not acts else None)
+    elif "activities" in raw and acts is None:
+        out["activity_count"], out["training_load"] = 0.0, 0.0       # consulta respondeu "nenhuma atividade"
+
+    # Faixas plausíveis: valor fora da faixa é erro de leitura/sensor e vira ausência
+    for k, (lo, hi) in PLAUSIBLE.items():
+        if out.get(k) is not None and not lo <= out[k] <= hi:
+            out[k] = None
     return {k: v for k, v in out.items() if v is not None}
 
 
-def parse_day(raw: dict[str, Any]) -> dict[str, Any]:
+PLAUSIBLE = {"resting_hr": (25, 130), "min_hr": (20, 150), "max_hr": (40, 240), "hrv_last_night": (3, 300),
+             "hrv_weekly_avg": (3, 300), "sleep_seconds": (600, 64800), "sleep_score": (1, 100), "stress_avg": (1, 100),
+             "stress_max": (1, 100), "bb_max": (1, 100), "bb_min": (1, 100), "spo2_avg": (60, 100),
+             "sleep_spo2_avg": (60, 100), "sleep_spo2_low": (50, 100), "resp_avg": (4, 40), "sleep_resp_avg": (4, 40),
+             "steps": (0, 150000), "calories_total": (500, 15000), "calories_resting": (500, 6000),
+             "calories_active": (0, 12000), "weight_kg": (30, 300), "body_fat_pct": (3, 60), "vo2max": (10, 100)}
+
+
+def nutrition_summary(raw: dict[str, Any]) -> dict[str, float] | None:
+    """Totais do dia registrados no Garmin Connect (se você usa o registro alimentar de lá)."""
+    n = (raw.get("food_logs") or {}).get("dailyNutritionContent") if isinstance(raw.get("food_logs"), dict) else None
+    if not isinstance(n, dict) or not num(n.get("calories")):
+        return None
+    return {"kcal": num(n.get("calories")), "protein_g": num(n.get("protein")), "carb_g": num(n.get("carbs")),
+            "fat_g": num(n.get("fat"))}
+
+
+def parse_day(raw: dict[str, Any], day: str | None = None) -> dict[str, Any]:
+    if "daily_summary" in raw or "heart_rate" in raw:        # fonte oficial
+        return parse_official(raw, day)
     out: dict[str, Any] = {}
-    official = "daily_summary" in raw or "heart_rate" in raw
+    official = False
     s = raw.get("user_summary") or find_dict(
         raw.get("daily_summary"), ("totalSteps", "totalKilocalories", "restingHeartRate")) or {}
     out.update({

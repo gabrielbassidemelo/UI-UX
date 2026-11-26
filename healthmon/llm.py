@@ -119,18 +119,31 @@ def _claude(cfg: Config, kind: str, facts: dict[str, Any]) -> str:
 
 
 def narrate(cfg: Config, kind: str, facts: dict[str, Any]) -> tuple[str | None, str]:
-    """Retorna (texto ou None, modo efetivamente usado)."""
+    """Retorna (texto ou None, modo efetivamente usado).
+
+    A IA só redige. Ela não é chamada em dia de pausa por sintomas, e o texto que produzir é descartado
+    se contiver diagnóstico, dose, alteração de medicamento ou incentivo a esforço intenso (safety.llm_text_allowed)."""
+    from . import safety
     mode = cfg.get("ia", "modo", "regras")
+    level = (facts.get("prontidao") or {}).get("nivel") if isinstance(facts.get("prontidao"), dict) else None
+    if mode == "regras" or level == "parar":
+        return None, "regras"
     facts = strip_identifiers(facts)
     try:
         if mode == "local":
-            return _ollama(cfg, kind, facts), "local"
-        if mode == "nuvem":
+            text, used = _ollama(cfg, kind, facts), "local"
+        elif mode == "nuvem":
             if not consent_status(cfg):
                 log.warning("IA em nuvem configurada mas SEM consentimento: usando regras locais.")
                 return None, "regras"
-            return _claude(cfg, kind, facts), "nuvem"
+            text, used = _claude(cfg, kind, facts), "nuvem"
+        else:
+            return None, "regras"
     except Exception as e:  # noqa: BLE001 — IA é opcional; relatório segue sem ela
         log.warning("IA (%s) indisponível: %s", mode, type(e).__name__)
         return None, "regras"
-    return None, "regras"
+    ok, why = safety.llm_text_allowed(text or "", level)
+    if not ok:
+        log.warning("Comentário da IA descartado pelo filtro de segurança.")
+        return None, "regras"
+    return text, used

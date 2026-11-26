@@ -116,7 +116,7 @@ def energy_density(db: Database, weight_kg: float, end: date) -> dict[str, Any]:
         fm = weight_kg * bf["body_fat_pct"] / 100
         p_lean = 10.4 / (10.4 + fm)                       # Forbes: fração magra da variação
         central = KCAL_FAT * (1 - p_lean) + KCAL_LEAN * p_lean
-        return {"central": round(central), "lo": round(central), "hi": KCAL_FAT,
+        return {"central": round(central), "lo": round(central * 0.85), "hi": KCAL_FAT,
                 "base": f"regra de Forbes com {bf['body_fat_pct']:.0f}% de gordura informado; limite "
                         "superior = variação só de gordura (plausível com treino de força e proteína adequada)"}
     return {"central": 7700.0, "lo": 6000.0, "hi": KCAL_FAT,
@@ -162,7 +162,16 @@ def tdee(db: Database, cfg: Config, end: date | None = None, days: int = 28) -> 
     logged = [v for v in intake.values() if v["completo"]]
     out["peso"] = {k: v for k, v in wt.items() if not k.startswith("_")}
     out["registro_alimentar"] = {"dias_completos": len(logged), "cobertura": round(len(logged) / days, 2)}
-    if wt.get("suficiente") and len(logged) >= MIN_LOG_DAYS and len(logged) / days >= MIN_LOG_COVERAGE:
+    from . import calibration
+    # A recalibração usa peso e alimentação: vale o estágio geral OU ≥28 dias cobertos por pesagens na janela.
+    first_w = db.q1("SELECT MIN(date) AS d FROM body_measurements WHERE weight_kg IS NOT NULL AND date BETWEEN ? AND ?",
+                    (start.isoformat(), end.isoformat()))
+    span = (end - date.fromisoformat(first_w["d"])).days + 1 if first_w and first_w["d"] else 0
+    calib_ok = calibration.stage(db, end)["permite"]["calibracao_metabolica"] or span >= 28
+    if not calib_ok:
+        out["adaptativa_indisponivel"] = ("Período de calibração: a recalibração do gasto só começa com pelo menos 28 dias "
+                                          "de pesagens e registro alimentar.")
+    elif wt.get("suficiente") and len(logged) >= MIN_LOG_DAYS and len(logged) / days >= MIN_LOG_COVERAGE:
         w, _ = prof.current_weight(db, cfg, end.isoformat())
         rho = energy_density(db, w, end)
         mean_in = st.mean(v["kcal"] for v in logged)
@@ -253,4 +262,5 @@ def strategies(goal: str) -> list[dict[str, Any]]:
                           "texto": "Mais provável em iniciantes, em quem retorna ao treino ou tem mais gordura corporal; "
                                    "a evolução é lenta e se mede em semanas."}],
     }
-    return base + extra.get(goal, [])
+    from . import kb
+    return [s_ for s_ in base + extra.get(goal, []) if not kb.failing(s_["refs"])]

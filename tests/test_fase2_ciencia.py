@@ -9,14 +9,22 @@ import pytest
 import healthmon
 from healthmon import analysis as an
 from healthmon import kb, labs, learning, metabolism as met, nutrition as nut, planner, profile as prof
-from healthmon import stats, supplements as sup, training as tr
+from healthmon import safety, stats, supplements as sup, training as tr
 from healthmon.demo import populate, populate_phase2
 
 from .conftest import END
 
 BASE = {"sexo": "masculino", "nascimento": "1988-05-10", "altura_cm": 180, "objetivo": "emagrecimento",
         "experiencia": "intermediario", "dias_treino": 4, "minutos_sessao": 60, "equipamento": "academia",
-        "limitacoes": [], "liberacao_medica": True, "condicoes_saude": [], "medicamentos": [], "restricoes_alimentares": []}
+        "limitacoes": [], "liberacao_medica": True, "condicoes_saude": [], "medicamentos": [], "restricoes_alimentares": [],
+        "cafeina_habitual_mg": 100, **{k: False for k in safety.TRIAGE}}
+
+
+def _setup(db, **over):
+    """Perfil sintético completo (triagem respondida 'não') + uma pesagem real, salvo se o teste registrar outra."""
+    prof.update(db, {**BASE, **over})
+    if not db.q1("SELECT 1 FROM body_measurements"):
+        prof.record_weight(db, END.isoformat(), 88)
 
 
 @pytest.fixture
@@ -45,7 +53,7 @@ def test_energy_density_is_a_range_not_7700(cfg, db):
 
 def test_bmr_requires_profile_and_reports_interval(cfg, db):
     assert met.bmr(db, cfg, END)["disponivel"] is False
-    prof.update(db, BASE)
+    _setup(db)
     b = met.bmr(db, cfg, END)
     assert b["intervalo"][0] < b["mifflin"] < b["intervalo"][1] and "cunningham" not in b
     assert "calorimetria" in b["nota"]
@@ -53,7 +61,7 @@ def test_bmr_requires_profile_and_reports_interval(cfg, db):
 
 def test_adaptive_tdee_recovers_known_truth(cfg, db):
     """Peso caindo 0,5 kg/semana com ingestão de 2.000 kcal → gasto verdadeiro ≈ 2.000 + 0,5×ρ/7."""
-    prof.update(db, BASE)
+    _setup(db)
     for i in range(42):
         d = (END - timedelta(days=41 - i)).isoformat()
         prof.record_weight(db, d, 90 - 0.5 * i / 7 + (0.3 if i % 2 else -0.3))
@@ -68,7 +76,7 @@ def test_adaptive_tdee_recovers_known_truth(cfg, db):
 
 
 def test_adaptive_tdee_refuses_insufficient_data(cfg, db):
-    prof.update(db, BASE)
+    _setup(db)
     for i in range(6):
         prof.record_weight(db, (END - timedelta(days=i)).isoformat(), 88)
     t = met.tdee(db, cfg, END)
@@ -77,7 +85,7 @@ def test_adaptive_tdee_refuses_insufficient_data(cfg, db):
 
 
 def test_adaptation_flag_is_hypothesis_with_alternative(cfg, db):
-    prof.update(db, BASE)
+    _setup(db)
     for i in range(42):
         d = (END - timedelta(days=41 - i)).isoformat()
         prof.record_weight(db, d, 90 - 0.2 * i / 7)
@@ -89,7 +97,7 @@ def test_adaptation_flag_is_hypothesis_with_alternative(cfg, db):
 
 # ------------------------------------------------------------- nutrição: limites
 def test_deficit_floor_and_caps(cfg, db):
-    prof.update(db, {**BASE, "sexo": "feminino", "altura_cm": 155, "gestante_ou_lactante": False})
+    _setup(db, **{"sexo": "feminino", "altura_cm": 155})
     prof.record_weight(db, END.isoformat(), 52)
     t = nut.compute_targets(db, cfg, END)
     assert t["kcal"] >= nut.SAFETY["piso_kcal"]["feminino"]
@@ -99,7 +107,7 @@ def test_deficit_floor_and_caps(cfg, db):
 
 # ------------------------------------------- achados da revisão científica independente
 def test_underweight_never_gets_deficit_or_lower_weight_goal(cfg, db):
-    prof.update(db, {**BASE, "sexo": "feminino", "altura_cm": 165, "gestante_ou_lactante": False})
+    _setup(db, **{"sexo": "feminino", "altura_cm": 165})
     prof.record_weight(db, END.isoformat(), 42)                       # IMC 15,4
     t = nut.compute_targets(db, cfg, END)
     assert t["balanco_kcal"] == 0 and "baixo peso" in t["bloqueio"] and "médico" in t["bloqueio"]
@@ -115,39 +123,43 @@ def test_underweight_never_gets_deficit_or_lower_weight_goal(cfg, db):
 def test_minors_rejected_and_pregnancy_blocks_deficit_and_supplements(cfg, db):
     with pytest.raises(ValueError, match="adultos"):
         prof.update(db, {"nascimento": (END - timedelta(days=14 * 365)).isoformat()})
-    prof.update(db, {**BASE, "sexo": "feminino"})
+    prof.update(db, {k: v for k, v in BASE.items() if k not in safety.TRIAGE} | {"sexo": "feminino"})
+    prof.record_weight(db, END.isoformat(), 70)
     assert "gestante_ou_lactante" in prof.missing(db, "nutricao")["nutricao"]      # pergunta obrigatória
-    prof.update(db, {"gestante_ou_lactante": True})
+    assert nut.compute_targets(db, cfg, END)["disponivel"] is False               # sem triagem não há metas
+    prof.update(db, {**{k: False for k in safety.TRIAGE}, "gestante_ou_lactante": True})
     t = nut.compute_targets(db, cfg, END)
-    assert t["balanco_kcal"] == 0 and "obstetra" in t["bloqueio"]
+    assert t["disponivel"] is False and "kcal" not in t and "obstetra" in str(t["bloqueio"])
     s = sup.evaluate(db, cfg, END)
     assert s["disponivel"] is False and "obstetra" in s["texto"]
-    prof.update(db, {"gestante_ou_lactante": False, "condicoes_saude": ["gestante 20 semanas"]})
+    prof.update(db, {"condicoes_saude": ["gestante 20 semanas"]})
     assert sup.evaluate(db, cfg, END)["disponivel"] is False
-    assert all(e["rir"] >= 3 for se in tr.build_plan(db, cfg, END)["sessoes"] for e in se["exercicios"])
+    with pytest.raises(ValueError, match="obstetra"):          # nenhum plano de treino é gerado nessa fase
+        tr.build_plan(db, cfg, END)
 
 
 @pytest.mark.parametrize("cond,blocked", [("DRC estágio 3", True), ("nefropatia diabética", True), ("insuficiência renal", True),
                                           ("pedra nos rins", True), ("hipertensão primária", False), ("rinite", False)])
 def test_kidney_terms_match_whole_words(cfg, db, cond, blocked):
-    prof.update(db, {**BASE, "objetivo": "hipertrofia", "condicoes_saude": [cond]})
+    _setup(db, **{"objetivo": "hipertrofia", "condicoes_saude": [cond]})
     c = {i["chave"]: i for i in sup.evaluate(db, cfg, END)["itens"]}["creatina"]
     assert (c["status"] == "inadequado") is blocked
 
 
 def test_milk_allergy_in_restrictions_and_caffeine_room(cfg, db):
-    prof.update(db, {**BASE, "objetivo": "forca", "restricoes_alimentares": ["APLV"], "cafeina_habitual_mg": 350})
+    _setup(db, **{"objetivo": "forca", "restricoes_alimentares": ["APLV"], "cafeina_habitual_mg": 350})
     by = {i["chave"]: i for i in sup.evaluate(db, cfg, END)["itens"]}
-    assert by["whey"]["status"] == "inadequado" and by["cafeina"]["status"] == "inadequado"
+    assert by["whey"]["status"] == "inadequado" and by["cafeina"]["status"] != "potencialmente_relevante"
     prof.update(db, {"cafeina_habitual_mg": 100})
     caf = {i["chave"]: i for i in sup.evaluate(db, cfg, END)["itens"]}["cafeina"]
-    assert caf["status"] == "potencialmente_relevante" and "200 mg" in caf["justificativa"]
+    # a ficha de cafeína depende de efsa2015caffeine, ainda não verificada: avaliação individual desabilitada
+    assert caf["status"] == "evidencia_nao_verificada" and "efsa2015caffeine" in caf["justificativa"]
     prof.update(db, {"condicoes_saude": ["taquicardia supraventricular"]})
     assert {i["chave"]: i for i in sup.evaluate(db, cfg, END)["itens"]}["cafeina"]["status"] == "inadequado"
 
 
 def test_vitamin_d_without_reference_old_or_high(cfg, db):
-    prof.update(db, BASE)
+    _setup(db)
     get = lambda: {i["chave"]: i for i in sup.evaluate(db, cfg, END)["itens"]}["vitamina d"]  # noqa: E731
     labs.add_result(db, (END - timedelta(days=30)).isoformat(), "Vitamina D", 8, "ng/mL")          # sem referência
     assert get()["status"] == "requer_avaliacao" and "sem a faixa de referência" in get()["justificativa"]
@@ -171,7 +183,7 @@ def test_hba1c_is_not_confused_with_hemoglobin(cfg, db):
 
 def test_underreported_intake_is_not_used_for_targets(cfg, db):
     """Peso estável com 1.100 kcal registradas: o sistema desconfia do registro, não do metabolismo."""
-    prof.update(db, {**BASE, "sexo": "feminino", "altura_cm": 165, "gestante_ou_lactante": False})
+    _setup(db, **{"sexo": "feminino", "altura_cm": 165})
     for i in range(42):
         d = (END - timedelta(days=41 - i)).isoformat()
         prof.record_weight(db, d, 70 + (0.2 if i % 2 else -0.2))
@@ -190,14 +202,14 @@ def test_readiness_uses_independent_groups_and_total_sessions_capped(cfg, db):
     db.upsert_daily(END.isoformat(), {"hrv_last_night": 30, "resting_hr": 66})
     assert tr.readiness(db, cfg, END)["nivel"] == "reduzido"
     for goal in ("emagrecimento", "condicionamento", "saude"):
-        prof.update(db, {**BASE, "objetivo": goal, "dias_treino": 6, "experiencia": "avancado"})
+        _setup(db, **{"objetivo": goal, "dias_treino": 6, "experiencia": "avancado"})
         p = tr.build_plan(db, cfg, END)
         assert p["dias_forca"] + len(p["cardio"]) <= tr.SAFETY["max_sessoes_semana"]
 
 
 def test_chest_pain_gets_urgent_wording_and_zones_are_acsm_moderate(cfg, db):
     _flat(db)
-    prof.update(db, {**BASE, "medicamentos": ["atenolol 25 mg"]})
+    _setup(db, **{"medicamentos": ["atenolol 25 mg"]})
     db.insert("checkins", {"date": END.isoformat(), "symptoms": "dor no peito"}, upsert_on="date")
     assert "urgência" in tr.todays_session(db, cfg, END)["texto"]
     z = tr.hr_zones(db, cfg, END)
@@ -239,16 +251,25 @@ def test_experiment_analysis_is_by_block_and_null_is_rarely_significant(cfg, db)
 
 
 def test_fast_loss_reduces_deficit(cfg, db):
-    prof.update(db, BASE)
+    _setup(db)
     for i in range(28):
-        prof.record_weight(db, (END - timedelta(days=27 - i)).isoformat(), 90 - 1.4 * i / 7)
+        prof.record_weight(db, (END - timedelta(days=27 - i)).isoformat(), 90 - 1.1 * i / 7)
     t = nut.compute_targets(db, cfg, END)
     assert t["kcal"] == pytest.approx(t["tdee"]["kcal"] * 0.9, abs=10)
     assert any("acima do limite de 1%" in o for o in t["observacoes"])
 
 
+def test_very_fast_loss_removes_deficit(cfg, db):
+    """Perda acima de 1,5% do peso por semana é sinal de risco nutricional: nenhum déficit é proposto."""
+    _setup(db)
+    for i in range(28):
+        prof.record_weight(db, (END - timedelta(days=27 - i)).isoformat(), 90 - 1.6 * i / 7)
+    t = nut.compute_targets(db, cfg, END)
+    assert t.get("balanco_kcal", 0) >= 0
+
+
 def test_surplus_capped_and_targets_need_confirmation(cfg, db):
-    prof.update(db, {**BASE, "objetivo": "hipertrofia", "experiencia": "iniciante"})
+    _setup(db, **{"objetivo": "hipertrofia", "experiencia": "iniciante"})
     t = nut.compute_targets(db, cfg, END)
     assert 0 < t["balanco_kcal"] <= nut.SAFETY["superavit_max_kcal"] + 10
     assert nut.active_targets(db) is None                     # nada vale sem confirmação
@@ -258,7 +279,10 @@ def test_surplus_capped_and_targets_need_confirmation(cfg, db):
 
 
 def test_weight_goal_rejects_unsafe_rate(cfg, db):
+    with pytest.raises(ValueError, match="altura"):
+        planner.add_goal(db, "peso", 86, (END + timedelta(days=84)).isoformat(), END)
     prof.record_weight(db, END.isoformat(), 90)
+    _setup(db)
     with pytest.raises(ValueError, match="1% do peso"):
         planner.add_goal(db, "peso", 78, (END + timedelta(days=28)).isoformat(), END)
     assert planner.add_goal(db, "peso", 86, (END + timedelta(days=84)).isoformat(), END)["id"] == 1
@@ -299,7 +323,7 @@ def test_lp_meal_suggestion_hits_targets(cfg, db):
 # ---------------------------------------------------------------- treino: limites
 @pytest.mark.parametrize("exp,days", [("iniciante", 7), ("intermediario", 7), ("avancado", 7), ("iniciante", 2)])
 def test_plan_respects_safety_caps(cfg, db, exp, days):
-    prof.update(db, {**BASE, "experiencia": exp, "dias_treino": days, "minutos_sessao": 150})
+    _setup(db, **{"experiencia": exp, "dias_treino": days, "minutos_sessao": 150})
     p = tr.build_plan(db, cfg, END)
     assert p["dias_forca"] <= tr.SAFETY["max_dias_forca"][exp] and p["dias_forca"] <= 6     # ≥1 dia de descanso
     assert max(p["series_semanais_por_grupo"].values()) <= tr.SAFETY["max_series_grupo_semana"][exp]
@@ -311,7 +335,7 @@ def test_plan_respects_safety_caps(cfg, db, exp, days):
 
 
 def test_plan_respects_limitations_and_clearance(cfg, db):
-    prof.update(db, {**BASE, "limitacoes": ["ombro", "joelho", "lombar"], "liberacao_medica": False, "objetivo": "condicionamento"})
+    _setup(db, **{"limitacoes": ["ombro", "joelho", "lombar"], "liberacao_medica": False, "objetivo": "condicionamento"})
     p = tr.build_plan(db, cfg, END)
     used = {e["chave"] for s in p["sessoes"] for e in s["exercicios"]}
     for k in used:
@@ -324,7 +348,7 @@ def test_plan_respects_limitations_and_clearance(cfg, db):
 def test_plan_requires_profile_and_confirmation(cfg, db):
     with pytest.raises(ValueError):
         tr.build_plan(db, cfg)
-    prof.update(db, BASE)
+    _setup(db)
     pid = tr.propose_plan(db, cfg, "teste", END)
     assert tr.get_plan(db) is None and tr.get_plan(db, "proposto")["id"] == pid
     tr.confirm_plan(db, pid)
@@ -377,11 +401,11 @@ def test_subjective_and_objective_combine(cfg, db):
 
 def test_red_flag_symptoms_stop_training(cfg, db):
     _flat(db)
-    prof.update(db, BASE)
+    _setup(db)
     tr.confirm_plan(db, tr.propose_plan(db, cfg, "t", END - timedelta(days=7)))
     db.insert("checkins", {"date": END.isoformat(), "perceived_recovery": 9, "symptoms": "dor no peito ao subir escada"}, upsert_on="date")
     s = tr.todays_session(db, cfg, END)
-    assert s["tipo"] == "descanso" and "avaliação profissional" in s["texto"]
+    assert s["tipo"] == "descanso" and "SAMU 192" in s["texto"] and "Não treine" in s["texto"]
 
 
 def test_poor_recovery_blocks_progression_and_hiit(cfg, full):
@@ -414,16 +438,16 @@ def test_supplements_contraindications_and_interactions(cfg, db):
 
 def test_supplements_not_driven_by_wearable_and_can_be_unnecessary(cfg, db):
     populate(db, 60, END, stress_last=10)                      # sono e HRV ruins no relógio
-    prof.update(db, {**BASE, "objetivo": "saude"})
+    _setup(db, **{"objetivo": "saude"})
     by = {i["chave"]: i for i in sup.evaluate(db, cfg, END)["itens"]}
-    assert by["magnesio"]["status"] == "desnecessario"
+    assert by["magnesio"]["status"] == "evidencia_nao_verificada"      # ficha apoiada em fonte inadequada/não verificada
     assert by["vitamina d"]["status"] == "dados_insuficientes" and "exame" in by["vitamina d"]["justificativa"]
-    assert sum(i["status"] == "desnecessario" for i in by.values()) >= 4
+    assert sum(i["status"] == "desnecessario" for i in by.values()) >= 3
     assert all(i["status"] != "potencialmente_relevante" for k, i in by.items() if k in ("magnesio", "vitamina d", "omega-3"))
 
 
 def test_vitamin_d_only_from_lab_and_refers_to_doctor(cfg, db):
-    prof.update(db, BASE)
+    _setup(db)
     labs.add_result(db, END.isoformat(), "25-OH Vitamina D", "18,5", "ng/mL", 30, 100)
     v = {i["chave"]: i for i in sup.evaluate(db, cfg, END)["itens"]}["vitamina d"]
     assert v["status"] == "requer_avaliacao" and "médico" in v["justificativa"]
@@ -570,13 +594,20 @@ def test_every_cited_reference_exists_in_kb():
     assert not (cited - set(ents)), f"referências citadas sem registro na base: {cited - set(ents)}"
 
 
-def test_kb_entries_are_complete_and_marked_unverified():
+def test_kb_entries_are_complete_and_classified():
     for k, e in kb.entries().items():
         for f in ("titulo", "autores", "ano", "periodico", "tipo", "populacao", "resultados", "limitacoes", "grau", "revisado_em"):
             assert e.get(f), (k, f)
         assert e["grau"] in kb.GRADE and (e["doi"] is None or e["doi"].startswith("10."))
-        assert e["verificado"] is False                       # nada foi conferido online durante o desenvolvimento
-    r = kb.search("creatina força massa magra", 3)
+        assert "verificado" not in e                          # a classe vem do registro de verificação, não da entrada
+        c = kb.cite([k])[0]
+        assert c["classe"] in kb.CLASSES and c["verificado"] is (c["classe"] == "verificada")
+    assert kb.status("chave_sem_registro")["classe"] == "nao_verificada"
+    resumo = kb.summary()
+    assert sum(resumo["por_classe"].values()) == resumo["total"] == len(kb.entries())
+    assert set(kb.failing(list(kb.entries()))) == {"mountjoy2018", "iom2005", "efsa2010", "efsa2015caffeine", "iom1997",
+                                                   "anvisa2018", "mah2021"}
+    r = kb.search("creatina desempenho", 3)
     assert r and r[0]["chave"] in ("kreider2017", "antonio2021")
     assert kb.cite(["nao_existe"]) == []
 

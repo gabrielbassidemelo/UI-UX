@@ -69,7 +69,7 @@ class Service:
         """Sincronização incremental: pula dias antigos que já têm todos os endpoints gravados."""
         days = recent_days(self.cfg, n)
         done = {r["date"] for r in self.db.q(
-            "SELECT date FROM raw_payloads WHERE status IN ('ok','vazio','indisponivel') GROUP BY date HAVING COUNT(*)>=8")}
+            "SELECT date FROM raw_payloads WHERE status IN ('ok','vazio','indisponivel') GROUP BY date HAVING COUNT(*)>=5")}
         fresh = set(days[-3:])
         return [d for d in days if d in fresh or d not in done]
 

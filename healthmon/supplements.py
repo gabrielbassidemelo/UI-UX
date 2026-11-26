@@ -29,6 +29,13 @@ BANNED = {
     "efedrina": "estimulante de risco cardiovascular", "dmaa": "estimulante proibido", "dnp": "desacoplador letal",
     "dinitrofenol": "desacoplador letal", "sibutramina": "medicamento controlado", "t3": "hormônio tireoidiano",
     "t4": "hormônio tireoidiano", "diuretic": "diuréticos", "insulina": "hormônios", "pro-hormon": "pró-hormônios",
+    "hormonio do crescimento": "hormônio do crescimento", "somatropina": "hormônio do crescimento", "ostarin": "SARMs",
+    "ligandrol": "SARMs", "cardarine": "SARMs", "yohimb": "estimulante de risco cardiovascular", "ioimb": "estimulante de risco cardiovascular",
+    "efedra": "estimulante de risco cardiovascular", "ma huang": "estimulante de risco cardiovascular",
+    "sinefrina": "estimulante de risco cardiovascular", "termogen": "'queimadores' com estimulantes", "queimador": "'queimadores' com estimulantes",
+    "laxante": "uso de laxantes para emagrecer", "liraglutida": "medicamento de prescrição", "semaglutida": "medicamento de prescrição",
+    "ozempic": "medicamento de prescrição", "anfetamina": "medicamento controlado", "oxandrin": "esteroides anabolizantes",
+    "durateston": "esteroides anabolizantes", "deca": "esteroides anabolizantes", "boldenona": "esteroides anabolizantes",
 }
 
 
@@ -38,11 +45,14 @@ def _n(s: str) -> str:
 
 
 SYNONYMS = {  # termo da ficha -> formas equivalentes (casadas no INÍCIO de palavra)
-    "renal": ("renal", "rim", "rins", "drc", "nefropat", "nefrit", "dialise", "hemodialise", "transplante renal", "insuficiencia renal"),
+    "renal": ("renal", "rim", "rins", "drc", "irc", "nefropat", "nefrit", "dialise", "hemodialise", "transplante renal", "insuficiencia renal"),
     "rim": (),
-    "arritmia": ("arritmia", "taquicardia", "fibrila", "palpita", "extrassistol"),
+    "arritmia": ("arritmia", "taquicardia", "fibrila", "palpita", "extrassistol", "fa", "icc", "insuficiencia cardiaca", "infarto",
+                 "iam", "marca passo", "marcapasso", "cardiopat", "coronari"),
     "fibrila": ("fibrila", "flutter"),
-    "hipertens": ("hipertens", "pressao alta"),
+    "hipertens": ("hipertens", "pressao alta", "has"),
+    "ansiedade": ("ansiedade", "tag", "panico", "transtorno de ansiedade"),
+    "refluxo": ("refluxo", "drge", "gastrite", "ulcera"),
     "gesta": ("gesta", "gravid", "lacta", "amament"),
     "insonia": ("insonia",),
     "alergia a leite": ("alergia a leite", "alergia ao leite", "aplv", "alergia a proteina do leite"),
@@ -54,7 +64,8 @@ def term_matches(term: str, text: str) -> bool:
     """Casa o termo (e sinônimos) apenas no início de palavra: 'rim' não casa com 'primária'."""
     import re as _re
     forms = SYNONYMS.get(term, (term,))
-    return any(_re.search(rf"(?<![a-z0-9]){_re.escape(f)}", text) for f in forms)
+    text = _re.sub(r"[^a-z0-9]+", " ", text)
+    return any(_re.search(rf"(?<![a-z0-9]){_re.escape(f)}" + (r"(?![a-z0-9])" if len(f) <= 4 else ""), text) for f in forms)
 
 
 def check_substance(name: str) -> dict[str, Any] | None:
@@ -72,9 +83,9 @@ SHEETS: dict[str, dict[str, Any]] = {
         "nome": "Creatina monoidratada", "finalidade": "Desempenho em esforços intensos e curtos; ganho de força e massa magra com treino de força.",
         "populacao": "Adultos saudáveis em treino de força ou de alta intensidade.", "evidencia": "forte",
         "beneficios": "Aumentos pequenos a moderados de força, potência e massa magra quando combinada ao treino.",
-        "dose": "3–5 g/dia de forma contínua (ou ~0,03 g/kg/dia). Fase de carga de ~20 g/dia por 5–7 dias é opcional.",
+        "dose": "3–5 g/dia de forma contínua. Fase de carga de ~0,3 g/kg/dia por 5–7 dias é opcional.",
         "horario": "Indiferente; a regularidade diária é o que importa.",
-        "adversos": "Ganho de 1–2 kg de água intracelular nas primeiras semanas; desconforto gastrointestinal em doses altas.",
+        "adversos": "Retenção hídrica inicial de cerca de 0,5–1,0 L com a fase de carga; desconforto gastrointestinal em doses altas.",
         "contra": {"renal": "Doença renal ou função renal reduzida: só com liberação médica.", "rim": "Doença renal: só com liberação médica."},
         "interacoes": {"anti-inflamat": "Uso crônico de anti-inflamatórios: converse com o médico (função renal).",
                        "ibuprofeno": "Uso crônico de anti-inflamatórios: converse com o médico (função renal).",
@@ -128,7 +139,7 @@ SHEETS: dict[str, dict[str, Any]] = {
         "populacao": "Adultos; ensaios grandes em prevenção cardiovascular.", "evidencia": "moderada",
         "beneficios": "Reduz triglicerídeos; em prevenção primária, pouco ou nenhum efeito em eventos cardiovasculares e mortalidade.",
         "dose": "Cerca de 1 g/dia de EPA+DHA nos ensaios de prevenção; 2–4 g/dia é uso médico para triglicerídeos.",
-        "horario": "Com refeições.", "adversos": "Eructação, desconforto gastrointestinal; doses mais altas associadas a maior risco de fibrilação atrial.",
+        "horario": "Com refeições.", "adversos": "Eructação, desconforto gastrointestinal; maior risco de fibrilação atrial em meta-análise de ensaios, presente já com até 1 g/dia e maior acima disso.",
         "contra": {"fibrila": "Histórico de fibrilação atrial: só com orientação do cardiologista.", "arritmia": "Arritmia: só com orientação do cardiologista."},
         "interacoes": {"varfarina": "Anticoagulante: avaliação médica (risco de sangramento).", "marevan": "Anticoagulante: avaliação médica.",
                        "rivaroxabana": "Anticoagulante: avaliação médica.", "xarelto": "Anticoagulante: avaliação médica.",
@@ -138,9 +149,11 @@ SHEETS: dict[str, dict[str, Any]] = {
         "profissional": "Recomendada antes de doses acima de 1 g/dia ou com medicamentos anticoagulantes.",
         "refs": ["abdelhamid2020", "manson2019n3", "gencer2021"]},
     "magnesio": {
-        "nome": "Magnésio", "finalidade": "Corrigir ingestão insuficiente; uso para sono tem evidência fraca.", "populacao": "Estudos de sono sobretudo em idosos com insônia.",
-        "evidencia": "limitada", "beneficios": "Pequena melhora possível na latência do sono em idosos com insônia (evidência de baixa qualidade).",
-        "dose": "Estudos usam 200–400 mg/dia de magnésio elementar; o limite superior tolerável para suplementos é 350 mg/dia.",
+        "nome": "Magnésio", "finalidade": "Corrigir ingestão insuficiente; uso para sono tem evidência fraca.", "populacao": "Três ensaios pequenos, somente em idosos com insônia; não se aplica a adultos jovens saudáveis.",
+        "evidencia": "limitada", "beneficios": "Em idosos com insônia, redução de cerca de 17 min na latência do sono; tempo total de sono sem diferença "
+                      "(evidência de baixa a muito baixa qualidade). Nunca é sugerido a partir de dados de sono do relógio.",
+        "dose": "Os ensaios em idosos com insônia usaram 320–729 mg/dia de magnésio elementar, em geral ACIMA do limite superior "
+                "tolerável de 350 mg/dia para suplementos. O sistema não sugere dose; uso só com orientação profissional.",
         "horario": "À noite nos estudos de sono; longe de certos medicamentos (ver interações).",
         "adversos": "Diarreia e desconforto abdominal (dose-dependente).",
         "contra": {"renal": "Doença renal: risco de acúmulo; não usar sem médico.", "rim": "Doença renal: não usar sem médico."},
@@ -152,8 +165,9 @@ SHEETS: dict[str, dict[str, Any]] = {
         "profissional": "Recomendada se houver doença renal ou uso dos medicamentos listados.", "refs": ["mah2021", "iom1997"]},
     "vitamina d": {
         "nome": "Vitamina D", "finalidade": "Corrigir deficiência confirmada por exame (25-OH-vitamina D).", "populacao": "Pessoas com deficiência ou em grupos de risco.",
-        "evidencia": "forte", "beneficios": "Em pessoas sem deficiência, suplementar não reduziu câncer nem eventos cardiovasculares (ensaio VITAL). O benefício está em corrigir deficiência.",
-        "dose": "Referência dietética: 600 UI/dia; limite superior tolerável: 4.000 UI/dia. Dose de correção é definida pelo médico conforme o exame.",
+        "evidencia": "forte", "beneficios": "Em adultos mais velhos não selecionados por nível de vitamina D, suplementar não reduziu câncer nem eventos "
+                      "cardiovasculares (ensaio VITAL). O benefício esperado está em corrigir deficiência confirmada.",
+        "dose": "Referência dietética: 600 UI/dia (800 UI/dia acima de 70 anos); limite superior tolerável: 4.000 UI/dia. Dose de correção é definida pelo médico conforme o exame.",
         "horario": "Com refeição que contenha gordura.", "adversos": "Em excesso: hipercalcemia, cálculo renal.",
         "contra": {"hipercalcemia": "Hipercalcemia: não usar.", "sarcoidose": "Sarcoidose: só com médico.", "calculo renal": "Cálculo renal: avaliação médica."},
         "interacoes": {"hidroclorotiazida": "Tiazídicos elevam o cálcio; avaliação médica.", "clortalidona": "Tiazídicos elevam o cálcio; avaliação médica.",
@@ -189,9 +203,12 @@ def evaluate(db: Database, cfg: Config, day: date | None = None) -> dict[str, An
     if miss:
         return {"disponivel": False, "faltam": miss,
                 "texto": "Antes de qualquer avaliação individual, informe (mesmo que seja 'nenhum'): " + ", ".join(miss) + "."}
-    if prof.pregnant_or_lactating(p):
-        return {"disponivel": False, "faltam": [], "texto": "Gestação ou amamentação: o sistema não avalia suplementos nessa fase. "
-                "Qualquer suplemento, inclusive cafeína e vitaminas, deve ser definido com o obstetra."}
+    from . import safety
+    scr = safety.screen(db, cfg, day)
+    stop = safety.blocked(scr, "suplementos")
+    if stop:
+        return {"disponivel": False, "faltam": [], "texto": stop}
+    fl = scr["flags"]
     meds = [_n(m) for m in p.get("medicamentos", [])]
     conds = [_n(c) for c in p.get("condicoes_saude", [])]
     diet = " ".join(_n(r) for r in p.get("restricoes_alimentares", []))
@@ -204,6 +221,30 @@ def evaluate(db: Database, cfg: Config, day: date | None = None) -> dict[str, An
         health_txt = conds + [diet]            # alergias costumam ser informadas em restrições alimentares
         contra = list(dict.fromkeys(txt for term, txt in s["contra"].items() if any(term_matches(term, c) for c in health_txt)))
         inter = [f"{m}: {txt}" for term, txt in s["interacoes"].items() for m in meds if term_matches(term, m)]
+        # Triagem estruturada (decide); o texto livre acima só acrescenta
+        if key == "cafeina":
+            if fl["doenca_cardiovascular"] or fl["usa_medicamento_fc"]:
+                contra.append("Doença cardiovascular ou medicamento que altera os batimentos: cafeína extra só com liberação médica.")
+            if fl["usa_psiquiatrico_ou_estimulante"]:
+                inter.append("Antidepressivo, lítio ou estimulante em uso: há interações relevantes (alguns elevam muito a cafeína "
+                             "no sangue; estimulantes somam efeito). Confirme com médico ou farmacêutico.")
+        if key == "omega-3":
+            if fl["alergia_peixe"]:
+                contra.append("Alergia a peixe ou frutos do mar: não usar óleo de peixe; opções de algas só com orientação.")
+            if fl["usa_anticoagulante"]:
+                inter.append("Anticoagulante ou antiagregante em uso: avaliação médica antes (risco de sangramento).")
+        if key == "whey" and fl["alergia_leite"]:
+            contra.append("Alergia a leite ou intolerância à lactose informada: whey concentrado não é adequado; alternativas "
+                          "dependem do tipo de alergia e devem ser vistas com profissional.")
+        if key == "magnesio" and fl["usa_levotiroxina"]:
+            inter.append("Levotiroxina em uso: magnésio reduz a absorção; separar por pelo menos 4 horas, conforme orientação médica.")
+        if key in ("creatina", "eletrolitos") and fl["usa_diuretico"]:
+            inter.append("Diurético em uso: avaliação médica antes (hidratação, função renal e eletrólitos).")
+        if key == "eletrolitos" and fl["doenca_cardiovascular"]:
+            contra.append("Doença cardiovascular: sódio e potássio extras só com orientação médica.")
+        if key == "vitamina d" and fl["usa_diuretico"]:
+            inter.append("Alguns diuréticos (tiazídicos) elevam o cálcio; avaliação médica antes de vitamina D.")
+        contra, inter = list(dict.fromkeys(contra)), list(dict.fromkeys(inter))
         status, why = "desnecessario", ""
         if key == "creatina":
             if goal in ("hipertrofia", "forca", "recomposicao", "desempenho", "emagrecimento"):
@@ -221,6 +262,9 @@ def evaluate(db: Database, cfg: Config, day: date | None = None) -> dict[str, An
                        f"({target['proteina_g']} g). Ajustar as refeições é a primeira opção; proteína em pó é conveniência.")
         elif key == "cafeina":
             hab = p.get("cafeina_habitual_mg")
+            today_ck = db.q1("SELECT caffeine_mg FROM checkins WHERE date=?", (day.isoformat(),))
+            if hab is not None and today_ck and today_ck["caffeine_mg"] is not None:
+                hab = max(hab, today_ck["caffeine_mg"])       # vale o maior entre o habitual e o já consumido hoje
             room = None if hab is None else 400 - hab
             if room is not None and room < 100:
                 status, why = "inadequado", (f"Você já consome cerca de {hab:.0f} mg/dia; somar uma dose pré-treino passaria da "
@@ -276,15 +320,22 @@ def evaluate(db: Database, cfg: Config, day: date | None = None) -> dict[str, An
         elif inter and status == "potencialmente_relevante":
             status = "requer_avaliacao"
             why = "Há possível interação com medicamento informado. " + why
+        from . import kb
+        bad_refs = kb.failing(s["refs"], cfg)
+        if bad_refs and not contra:      # contraindicação informada prevalece; sem evidência verificada não há avaliação individual deste item
+            status = "evidencia_nao_verificada"
+            why = ("Avaliação individual desabilitada: a evidência que sustenta esta ficha ainda não foi verificada ("
+                   + ", ".join(bad_refs) + ").")
         out.append({"chave": key, **{k: s[k] for k in ("nome", "finalidade", "populacao", "evidencia", "beneficios", "dose", "horario",
                                                       "adversos", "sono", "custo", "profissional", "refs")},
                     "status": status, "justificativa": why, "contraindicacoes_aplicaveis": contra,
                     "contraindicacoes_gerais": sorted(set(s["contra"].values())), "interacoes_aplicaveis": inter,
                     "interacoes_gerais": sorted(set(s["interacoes"].values())), "em_uso": key in in_use})
-    order = {"inadequado": 0, "requer_avaliacao": 1, "potencialmente_relevante": 2, "dados_insuficientes": 3, "desnecessario": 4}
+    order = {"inadequado": 0, "requer_avaliacao": 1, "potencialmente_relevante": 2, "dados_insuficientes": 3,
+             "desnecessario": 4, "evidencia_nao_verificada": 5}
     out.sort(key=lambda x: order[x["status"]])
     return {"disponivel": True, "itens": out,
             "aviso": "Avaliação informativa baseada no que você informou. Interações listadas não são exaustivas: confirme com "
-                     "médico ou farmacêutico. Suplementos devem estar regularizados na Anvisa (RDC 243/2018 e IN 28/2018). "
+                     "médico ou farmacêutico. Confira no portal da Anvisa se o produto está regularizado (o sistema não verificou as normas vigentes). "
                      "Nenhum suplemento é necessário para ter resultado.",
-            "refs_gerais": ["maughan2018", "anvisa2018"]}
+            "refs_gerais": ["maughan2018"]}

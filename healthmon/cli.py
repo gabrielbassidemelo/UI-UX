@@ -62,7 +62,8 @@ def main(argv: list[str] | None = None) -> int:
     ia = sub.add_parser("ia-nuvem", help="consentimento para IA em nuvem")
     ia.add_argument("acao", choices=["previa", "consentir", "revogar", "status"])
     sub.add_parser("testar-notificacao", help="envia mensagem de teste pelos canais configurados")
-    sub.add_parser("validar-garmin", help="testa a API oficial e mostra a ESTRUTURA das respostas (sem valores)")
+    sub.add_parser("validar-garmin", help="valida a API oficial: autenticação, renovação, estrutura, unidades, fuso, histórico (sem valores)")
+    sub.add_parser("conferir-garmin", help="mostra os valores de ontem para você comparar com o app Garmin Connect")
     kbp = sub.add_parser("kb", help="base científica: verificar referências no Crossref ou buscar")
     kbp.add_argument("acao", choices=["verificar", "buscar", "listar"])
     kbp.add_argument("termo", nargs="?")
@@ -108,10 +109,15 @@ def main(argv: list[str] | None = None) -> int:
         n = args.dias
         svc = Service(cfg, db)
         days = recent_days(cfg, n) if n else None
+        if args.cmd == "historico" and hasattr(svc.source, "fetch_range"):
+            from .sync import sync_range, today_local
+            end = today_local(cfg)
+            res = sync_range(cfg, db, svc.source, (end - timedelta(days=n - 1)).isoformat(), end.isoformat())
+            print(json.dumps(res, ensure_ascii=False), "— histórico importado por intervalo (pode ser repetido sem duplicar).")
+            return 0 if res["status"] != "erro" else 1
         if args.cmd == "historico":
             days = svc.pending_days(n)
-            print(f"Importando {len(days)} de {n} dias (os demais já estão gravados). Há pausas e orçamento diário de "
-                  "requisições; se o limite for atingido, repita o comando depois: ele continua de onde parou.")
+            print(f"Importando {len(days)} de {n} dias (os demais já estão gravados).")
         res = svc.sync(days)
         print(json.dumps({k: v for k, v in res.items() if k != "dias"}, ensure_ascii=False),
               f"— {len(res.get('dias', {}))} dia(s) processado(s)")
@@ -257,36 +263,26 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "validar-garmin":
-        from .garmin_official import ENDPOINTS, PersonalApiSource, key_expiry_status, shape
-        from .parse import parse_day
+        from . import garmin_validation
+        print("Validando a Garmin Connect Personal API. O relatório abaixo NÃO contém valores de saúde:\n"
+              "só estados, nomes de campos, contagens e 'igual/diferente'.\n")
+        rep = garmin_validation.run(cfg, db)
+        print(json.dumps(rep, ensure_ascii=False, indent=1))
+        print("\nRESULTADO:", "APROVADA" if rep["aprovado"] else "NÃO APROVADA", "-", rep.get("motivo", "ver etapas acima"))
+        print(f"Relatório salvo em {cfg.home / 'validacao_garmin.json'}. Próximo passo: compare os valores com o app "
+              "(painel → Configurações → Conferência com o app, ou `healthmon conferir-garmin`).")
+        return 0 if rep["aprovado"] else 1
+
+    if args.cmd == "conferir-garmin":
+        from . import garmin_validation
         from .sync import today_local
-        from .db import utcnow
-        src = PersonalApiSource(cfg, db)
-        day = (today_local(cfg) - timedelta(days=1)).isoformat()
-        print(f"Validando a Garmin Personal API com os dados de {day}. Abaixo aparecem apenas nomes de campos e tipos.\n")
-        try:
-            fetched = src.fetch_day(day)
-        except Exception as e:  # noqa: BLE001
-            print(f"FALHA: {type(e).__name__}: {e}")
-            return 1
-        ok = 0
-        for name in ENDPOINTS:
-            status, payload = fetched[name]
-            ok += status in ("ok", "vazio")
-            print(f"== {name}: {status}")
-            if status == "ok":
-                print("   ", json.dumps(shape(payload), ensure_ascii=False)[:1500])
-                db.save_raw(day, name, status, payload)
-        values = parse_day({k: v for k, (st, v) in fetched.items() if st == "ok"})
-        print(f"\n{ok}/{len(ENDPOINTS)} endpoints responderam. Indicadores reconhecidos pelo parser ({len(values)}):")
-        print("  ", ", ".join(sorted(values)) or "nenhum")
-        print("Validade da chave:", key_expiry_status(cfg))
-        if ok and values:
-            db.set_setting("garmin_validado_em", utcnow())
-            db.set_setting("data_source", "garmin")
-            print("\nIntegração real validada. Se algum indicador esperado não foi reconhecido, envie ESTA saída "
-                  "(não contém valores de saúde) para ajuste do parser.")
-        return 0 if ok else 1
+        c = garmin_validation.comparison(db, today_local(cfg) - timedelta(days=1))
+        print(f"Valores lidos para {c['dia']} — compare com o app Garmin Connect na mesma data.\n"
+              "ATENÇÃO: estes são dados de saúde. Não cole esta saída em conversas com assistentes de IA.\n")
+        for i in c["itens"]:
+            print(f"  {i['rotulo']:32s} {i['valor'] or 'sem dado'}")
+        print("\n" + c["onde_ver_no_app"])
+        return 0
 
     if args.cmd == "kb":
         from . import kb

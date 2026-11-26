@@ -2,7 +2,9 @@
 
 Princípios (chaves em kb/evidencias.json):
 - Volume semanal por grupo muscular e relação dose-resposta: schoenfeld2017volume.
-- Frequência ≥2×/semana por grupo: schoenfeld2016freq. Faixas de carga/repetições: schoenfeld2017load.
+- Distribuir o volume em 2×/semana por grupo é uma forma prática de organizar o treino, não um requisito
+  (schoenfeld2016freq; com volume igual a frequência não mostrou efeito). Faixas de carga: schoenfeld2017load
+  (estudos com séries até a falha).
 - Intensidade por repetições em reserva (RIR/RPE): zourdos2016; proximidade da falha: refalo2023.
 - Modelos de progressão e periodização: acsm2009. Aeróbico: garber2011, bull2020. HIIT: milanovic2015.
 - Prevenção de fadiga excessiva: meeusen2013.
@@ -172,9 +174,11 @@ def hr_zones(db: Database, cfg: Config, day: date | None = None) -> dict[str, An
     names = [("Z1", .3, .4, "muito leve, recuperação"), ("Z2", .4, .6, "moderado: dá para conversar"),
              ("Z3", .6, .75, "vigoroso sustentável"), ("Z4", .75, .9, "forte, perto do limiar"), ("Z5", .9, 1.0, "máximo")]
     meds = " ".join(str(m).lower() for m in p.get("medicamentos", []))
-    warn = ("Você informou medicamento que pode reduzir a frequência cardíaca (betabloqueador): zonas por FC não se "
-            "aplicam; guie-se pela percepção de esforço e pela orientação do seu médico."
-            if any(x in meds for x in ("olol", "betabloq", "carvedilol")) else None)
+    warn = ("Você usa medicamento ou dispositivo que altera a frequência cardíaca (betabloqueador, verapamil, diltiazem, "
+            "antiarrítmico, marca-passo): zonas por batimentos não se aplicam; guie-se pela percepção de esforço e pela "
+            "orientação do seu médico."
+            if p.get("usa_medicamento_fc") or any(x in meds for x in ("olol", "betabloq", "carvedilol", "selozok", "concor",
+                                                                    "verapamil", "diltiazem", "amiodarona", "marca-passo", "marcapasso")) else None)
     return {"disponivel": True, "fc_max": round(hmax), "fc_repouso": round(rest), "origem": src, "aviso": warn,
             "metodo": "reserva de frequência cardíaca (Karvonen)", "refs": ["tanaka2001", "garber2011"],
             "zonas": [{"zona": n, "de": round(rest + lo * (hmax - rest)), "ate": round(rest + hi * (hmax - rest)),
@@ -200,9 +204,23 @@ def build_plan(db: Database, cfg: Config, start: date | None = None) -> dict[str
     miss = prof.missing(db, "treino")["treino"]
     if miss:
         raise ValueError("Complete o perfil antes de gerar o plano: " + ", ".join(miss))
+    from . import safety
+    scr = safety.screen(db, cfg, start or date.today())
+    stop = safety.blocked(scr, "treino_plano")
+    if stop:
+        raise ValueError(stop)
+    from . import kb
+    bad_refs = kb.failing(["acsm2009", "schoenfeld2017volume", "zourdos2016", "garber2011", "bull2020"], cfg)
+    if bad_refs:
+        raise ValueError("Plano personalizado desabilitado: referências científicas ainda não verificadas ("
+                         + ", ".join(bad_refs) + ").")
     exp, goal = p["experiencia"], p["objetivo"]
-    cleared = bool(p.get("liberacao_medica")) and not p.get("condicoes_saude") and not prof.pregnant_or_lactating(p)
-    notes = []
+    intense_block = safety.blocked(scr, "treino_intenso")
+    cleared = not intense_block and not p.get("condicoes_saude")
+    old = bool(scr.get("idoso"))
+    notes = list(scr["avisos"])
+    if intense_block:
+        notes.append(intense_block)
     days = min(p["dias_treino"], SAFETY["max_dias_forca"][exp], 7 - SAFETY["min_dias_descanso_semana"])
     if days < p["dias_treino"]:
         notes.append(f"Dias de força limitados a {days}/semana para o nível {exp} (limite de segurança).")
@@ -210,12 +228,11 @@ def build_plan(db: Database, cfg: Config, start: date | None = None) -> dict[str
         notes.append("Sem liberação médica registrada ou com condição de saúde informada: plano restrito a "
                      "intensidade moderada, sem HIIT. Faça uma avaliação médica antes de iniciar ou intensificar "
                      "(um questionário de prontidão como o PAR-Q+ ajuda nessa conversa).")
-    if prof.pregnant_or_lactating(p):
-        notes.append("Gestação ou amamentação: o exercício deve ser orientado pelo obstetra; este plano é genérico e "
-                     "não foi adaptado para essa fase.")
     comp, acc, rir, rest, sets, objetivo = GOAL[goal]
     if not cleared:
         rir = max(rir, 3)
+    elif old:
+        rir = max(rir, 2)
     minutes = min(p["minutos_sessao"], SAFETY["max_minutos_sessao"])
     max_ex = max(3, min(7, int((minutes - 8) // 8)))
     sessions = []
@@ -259,7 +276,7 @@ def build_plan(db: Database, cfg: Config, start: date | None = None) -> dict[str
             kept.append(it)
         s["exercicios"] = kept
         s["duracao_min"] = round(8 + sum(i["series"] * (i["descanso_s"] + 40) for i in kept) / 60)
-    cardio = _cardio(goal, exp, cleared, days)
+    cardio = _cardio(goal, exp, cleared and not old, days)
     start = start or date.today()
     start -= timedelta(days=start.weekday())
     plan = {
@@ -270,7 +287,9 @@ def build_plan(db: Database, cfg: Config, start: date | None = None) -> dict[str
                                                         "ombros ao fim das sessões ou nos dias de descanso.",
         "progressao": "Dupla progressão: primeiro complete o topo da faixa de repetições em todas as séries com "
                       "o RIR alvo; depois aumente a carga em 2,5–5% e volte à base da faixa.",
-        "rir_minimo": 3 if not cleared else 0, "seguranca": STOP_SYMPTOMS, "observacoes": notes,
+        "rir_minimo": 3 if not cleared else 2 if old else 0, "seguranca": STOP_SYMPTOMS, "observacoes": notes,
+        "equilibrio": ("Inclua 2–3 vezes por semana exercícios de equilíbrio (apoio em uma perna perto de um suporte, "
+                       "caminhada em linha, levantar e sentar da cadeira): reduzem o risco de quedas.") if old else None,
         "refs": ["acsm2009", "schoenfeld2017volume", "schoenfeld2016freq", "zourdos2016", "garber2011"],
     }
     return plan
@@ -406,8 +425,13 @@ def readiness(db: Database, cfg: Config, day: date) -> dict[str, Any]:
         if (ck.get("soreness") or 0) >= 4:
             score += 1
             signals.append("Dor muscular alta relatada")
-        sym = (ck.get("symptoms") or "").lower()
-        red = any(f in sym for f in RED_FLAGS)
+    from . import safety
+    flags = safety.symptom_flags(ck)
+    red = any(flags.values())
+    urgent = any(flags[k] for k, (_, urg) in safety.SYMPTOMS.items() if urg)
+    answered = safety.triage_answered(ck)
+    if red:
+        signals.insert(0, "Sintomas de alerta relatados hoje: " + ", ".join(safety.SYMPTOMS[k][0] for k, v in flags.items() if v))
     sleep = store.value("sleep_seconds", day)
     if sleep is not None and "Sono" not in bad:        # não contar o sono duas vezes
         if sleep < 6 * 3600:
@@ -428,7 +452,8 @@ def readiness(db: Database, cfg: Config, day: date) -> dict[str, Any]:
         level = "normal"
     conf = "alta" if sources >= 2 and seen >= 3 else "média" if sources >= 1 else "baixa"
     return {"nivel": level, "pontos": score, "sinais": signals, "confianca": conf, "fontes": sources,
-            "tem_checkin": bool(ck), "recuperacao_objetiva": rec.status,
+            "tem_checkin": bool(ck), "triagem_respondida": answered, "sintomas": [k for k, v in flags.items() if v],
+            "urgente": urgent, "recuperacao_objetiva": rec.status,
             "regra": "0–1 ponto: treino normal; 2–3: volume/intensidade reduzidos; ≥4: recuperação ativa ou descanso; "
                      "sintomas de alerta: não treinar. Contam 4 grupos objetivos independentes (HRV, FC de repouso, sono, "
                      "estresse no sono), a sua percepção, sono curto e pico de carga; nenhum decide sozinho. "
@@ -441,8 +466,15 @@ def todays_session(db: Database, cfg: Config, day: date) -> dict[str, Any]:
     ready = readiness(db, cfg, day)
     out: dict[str, Any] = {"dia": day.isoformat(), "prontidao": ready, "seguranca": STOP_SYMPTOMS}
     if ready["nivel"] == "parar":
-        out.update(tipo="descanso", titulo="Não treine hoje",
-                   texto=URGENT + " Para febre ou mal-estar, descanse e procure avaliação profissional se não melhorar.")
+        if ready["urgente"]:
+            txt = URGENT
+        elif "febre" in ready["sintomas"]:
+            txt = ("Com febre ou sinais de infecção, não treine: descanse e hidrate-se. Volte de forma gradual quando os "
+                   "sintomas passarem; procure avaliação profissional se piorar ou não melhorar em poucos dias.")
+        else:
+            txt = ("Dor aguda, inchaço ou lesão nova: não treine a região afetada hoje. Se a dor for forte, houver inchaço "
+                   "importante ou não melhorar, procure avaliação profissional antes de retomar.")
+        out.update(tipo="descanso", titulo="Não treine hoje", texto=txt)
         return out
     if not plan:
         out.update(tipo="sem_plano", titulo="Sem plano de treino ativo",
@@ -458,9 +490,10 @@ def todays_session(db: Database, cfg: Config, day: date) -> dict[str, Any]:
         idx = rest_days.index(day.weekday())
         if idx < len(cardio) and ready["nivel"] != "recuperacao":
             c = dict(cardio[idx])
-            if c["tipo"] == "HIIT" and ready["nivel"] != "normal":
-                c = {"tipo": "Aeróbico Z2", "duracao_min": 30, "intensidade": "Zona 2", "objetivo": "Base aeróbica",
-                     "refs": ["garber2011"], "ajuste": "HIIT trocado por Z2: recuperação abaixo do ideal."}
+            if c["tipo"] == "HIIT" and (ready["nivel"] != "normal" or not ready["triagem_respondida"]):
+                c = {"tipo": "Aeróbico Z2", "duracao_min": 30, "intensidade": "Zona 2: esforço moderado", "objetivo": "Base aeróbica",
+                     "refs": ["garber2011"], "ajuste": ("HIIT trocado por Z2: recuperação abaixo do ideal." if ready["nivel"] != "normal"
+                                                       else "HIIT só é liberado depois que você responde a triagem de sintomas do dia (check-in).")}
             out.update(tipo="cardio", titulo=c["tipo"], cardio=c)
         else:
             out.update(tipo="descanso", titulo="Descanso ou recuperação ativa",
@@ -468,6 +501,12 @@ def todays_session(db: Database, cfg: Config, day: date) -> dict[str, Any]:
         return out
     session = json.loads(json.dumps(plan["sessoes"][plan["dias_semana"].index(day.weekday()) % len(plan["sessoes"])]))
     factor, rir_adj, changes = meso["fator_series"], meso["ajuste_rir"], []
+    from . import calibration
+    stage_ok = calibration.stage(db, day)["permite"]["progressao_de_carga"]
+    if not ready["triagem_respondida"]:
+        changes.append("Responda a triagem de sintomas no check-in de hoje: sem ela o sistema não sugere aumento de carga nem HIIT.")
+    elif not stage_ok:
+        changes.append("Período de calibração: o sistema ainda não sugere aumento de carga; registre as cargas usadas.")
     if ready["nivel"] == "recuperacao":
         out.update(tipo="recuperacao", titulo="Recuperação ativa no lugar de " + session["nome"],
                    texto="Vários sinais independentes indicam recuperação insuficiente: troque por caminhada leve "
@@ -482,7 +521,8 @@ def todays_session(db: Database, cfg: Config, day: date) -> dict[str, Any]:
     for it in session["exercicios"]:
         it["series"] = max(2 if it["series"] >= 3 else 1, round(it["series"] * factor))
         it["rir"] = max(plan.get("rir_minimo", 0), min(5, it["rir"] + rir_adj))
-        it["progressao"] = (progression(db, it["chave"], it["reps"], it["rir"]) if ready["nivel"] == "normal" and factor >= 1
+        can_progress = ready["nivel"] == "normal" and factor >= 1 and ready["triagem_respondida"] and stage_ok
+        it["progressao"] = (progression(db, it["chave"], it["reps"], it["rir"]) if can_progress
                             else {"acao": "manter", "texto": "Hoje não é dia de aumentar carga: repita a última carga."})
     session["duracao_min"] = round(8 + sum(i["series"] * (i["descanso_s"] + 40) for i in session["exercicios"]) / 60)
     out.update(tipo="forca", titulo=session["nome"], sessao=session, ajustes=changes)

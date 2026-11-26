@@ -28,23 +28,30 @@ log = logging.getLogger(__name__)
 
 KEY_ENV = "GARMIN_PERSONAL_API_KEY"
 
-# nome interno -> chamada no cliente oficial (todas GET, somente leitura)
+# Coleta de rotina: nome interno -> chamada no cliente oficial (todas GET, somente leitura).
+# O resumo diário v2 já traz FC, estresse, Body Battery, respiração, SpO2 e hidratação, então os
+# endpoints dedicados desses itens ficam só para a validação cruzada (EXTRA_ENDPOINTS).
 ENDPOINTS: dict[str, Callable[[Any, str], Any]] = {
     "daily_summary": lambda c, d: c.get_daily_summaries(d, d),
     "sleep": lambda c, d: c.get_daily_sleep(d),
     "hrv": lambda c, d: c.get_daily_hrv(d),
+    "max_metrics": lambda c, d: c.get_daily_vo2_max(d, d),
+    "activities": lambda c, d: c.search_activities(start=0, limit=50, start_date=d, end_date=d),
+    "weight": lambda c, d: c.get_weight_measurements(d, d),
+    "food_logs": lambda c, d: c.get_daily_food_logs(d),
+}
+EXTRA_ENDPOINTS: dict[str, Callable[[Any, str], Any]] = {
     "heart_rate": lambda c, d: c.get_daily_heart_rate(d),
     "body_battery": lambda c, d: c.get_daily_body_battery(d, d),
     "stress": lambda c, d: c.get_daily_stress(d, d),
     "spo2": lambda c, d: c.get_daily_spo2(d),
-    "max_metrics": lambda c, d: c.get_daily_vo2_max(d, d),
-    "activities": lambda c, d: c.search_activities(start=0, limit=50, start_date=d, end_date=d),
-    "weight": lambda c, d: c.get_weight_measurements(d, d),
     "hydration": lambda c, d: c.get_daily_hydration(d, d),
-    "food_logs": lambda c, d: c.get_daily_food_logs(d),
 }
-# Indicadores do sistema anterior SEM endpoint na Personal API (não coletados pela via oficial)
-NOT_IN_PERSONAL_API = ["training_readiness (prontidão para treino)", "respiração (endpoint dedicado)"]
+# Limites de intervalo por chamada, conforme a especificação OpenAPI oficial (dias)
+RANGE_MAX = {"daily_summary": 365, "sleep": 31, "hrv": 28, "max_metrics": 28, "weight": 364}
+# Sem endpoint na Personal API v1.0.0: não são coletados nem estimados
+NOT_IN_PERSONAL_API = ["prontidão para treino (training readiness)", "tempo de recuperação", "temperatura da pele",
+                       "status de treino e carga de treino aguda"]
 
 
 class RateLimited(RuntimeError):
@@ -177,14 +184,14 @@ class PersonalApiSource:
             self.stats["retentativas"] += 1
             self.sleep(min(120.0, 2.0 ** attempt + random.uniform(0, 1)))  # backoff exponencial + jitter
 
-    def fetch_day(self, day: str) -> dict[str, tuple[str, Any]]:
+    def fetch_day(self, day: str, extras: bool = False) -> dict[str, tuple[str, Any]]:
         blocked = self._blocked_until()
         if blocked:
             raise RateLimited((blocked - datetime.now(timezone.utc)).total_seconds())
         pause = float(self.cfg.get("coleta", "pausa_entre_chamadas_s", 1.5))
         out: dict[str, tuple[str, Any]] = {}
         try:
-            for name, fn in ENDPOINTS.items():
+            for name, fn in {**ENDPOINTS, **(EXTRA_ENDPOINTS if extras else {})}.items():
                 out[name] = self._call(name, fn, day)
                 self.sleep(pause)
         except RateLimited:
@@ -194,6 +201,84 @@ class PersonalApiSource:
                 self.db.set_setting("garmin_bloqueado_ate",
                                     (datetime.now(timezone.utc) + timedelta(minutes=mins)).isoformat())
             raise
+        return out
+
+    def fetch_range(self, start: str, end: str) -> dict[str, dict[str, tuple[str, Any]]]:
+        """Histórico por intervalo: poucas chamadas cobrem muitos dias (resumo diário: até 1 ano por chamada).
+        Devolve {dia: {endpoint: (status, payload do dia)}} no mesmo formato de fetch_day."""
+        blocked = self._blocked_until()
+        if blocked:
+            raise RateLimited((blocked - datetime.now(timezone.utc)).total_seconds())
+        pause = float(self.cfg.get("coleta", "pausa_entre_chamadas_s", 1.5))
+        d0, d1 = date.fromisoformat(start), date.fromisoformat(end)
+        days = [(d0 + timedelta(days=i)).isoformat() for i in range((d1 - d0).days + 1)]
+        out: dict[str, dict[str, tuple[str, Any]]] = {d: {} for d in days}
+
+        def chunks(n: int):
+            cur = d0
+            while cur <= d1:
+                last = min(d1, cur + timedelta(days=n - 1))
+                yield cur.isoformat(), last.isoformat()
+                cur = last + timedelta(days=1)
+
+        def spread(name: str, items: Any, key: str, wrap) -> None:
+            if not isinstance(items, list):
+                return
+            for it in items:
+                d = str(it.get(key, ""))[:10] if isinstance(it, dict) else ""
+                if d in out:
+                    out[d][name] = ("ok", wrap(it))
+        calls = [
+            ("daily_summary", lambda c, a, b: c.get_daily_summaries(a, b), lambda p: (p or {}).get("data") if isinstance(p, dict) else p,
+             "calendarDate", lambda it: {"data": [it]}),
+            ("sleep", lambda c, a, b: c.get_daily_sleep_summaries(a, b), lambda p: p, "calendarDate", lambda it: it),
+            ("hrv", lambda c, a, b: c.get_daily_hrv_summaries(a, b), lambda p: (p or {}).get("hrvSummaries") if isinstance(p, dict) else p,
+             "calendarDate", lambda it: {"hrvSummary": it}),
+        ]
+        try:
+            for name, fn, unwrap, key, wrap in calls:
+                for a, b in chunks(RANGE_MAX[name]):
+                    status, payload = self._call(name, lambda c, _d, fn=fn, a=a, b=b: fn(c, a, b), a)
+                    if status == "ok":
+                        spread(name, unwrap(payload), key, wrap)
+                    elif status == "erro":
+                        for d in days:
+                            if a <= d <= b:
+                                out[d].setdefault(name, ("erro", payload))
+                    self.sleep(pause)
+            for a, b in chunks(RANGE_MAX["weight"]):
+                status, payload = self._call("weight", lambda c, _d, a=a, b=b: c.get_weight_measurements(a, b), a)
+                if status == "ok" and isinstance(payload, dict):
+                    for summ in payload.get("dailyWeightSummaries") or []:
+                        d = str(summ.get("summaryDate", ""))[:10]
+                        if d in out:
+                            out[d]["weight"] = ("ok", {"dailyWeightSummaries": [summ]})
+                self.sleep(pause)
+            acts: list[Any] = []
+            offset = 0
+            while offset < 2000:
+                status, payload = self._call("activities", lambda c, _d, o=offset: c.search_activities(
+                    start=o, limit=99, start_date=start, end_date=end), start)
+                page = payload if status == "ok" and isinstance(payload, list) else []
+                acts += page
+                self.sleep(pause)
+                if len(page) < 99:
+                    break
+                offset += 99
+            by_day: dict[str, list[Any]] = {}
+            for a_ in acts:
+                by_day.setdefault(str(a_.get("startTimeLocal", ""))[:10], []).append(a_)
+            for d in days:
+                out[d]["activities"] = ("ok", by_day[d]) if d in by_day else ("vazio", None)
+        except RateLimited:
+            mins = int(self.cfg.get("garmin", "pausa_apos_429_min", 60))
+            if self.db is not None:
+                self.db.set_setting("garmin_bloqueado_ate",
+                                    (datetime.now(timezone.utc) + timedelta(minutes=mins)).isoformat())
+            raise
+        for d in days:                      # dia sem item no intervalo = sem dado (não é erro nem zero)
+            for name in ("daily_summary", "sleep", "hrv"):
+                out[d].setdefault(name, ("vazio", None))
         return out
 
     def close(self) -> None:

@@ -3,7 +3,7 @@
 
 [perfil]
 fuso_horario = "America/Sao_Paulo"
-peso_kg = 88.0
+# O peso NÃO é configurado aqui: registre pesagens reais no painel (Composição corporal).
 
 [garmin]
 # "oficial" = Garmin Connect Personal API (padrão; chave em secrets.env: GARMIN_PERSONAL_API_KEY)
@@ -100,3 +100,9 @@ hora = "03:30"
 brutos_dias = 400
 # Histórico de execuções das tarefas.
 execucoes_dias = 90
+
+[evidencias]
+# Nível mínimo de verificação exigido para uma referência sustentar recomendação personalizada:
+# "parcialmente_verificada" (padrão) ou "verificada" (mais rígido: desabilita mais recomendações).
+# Regras apoiadas em referência abaixo do nível ficam desabilitadas.
+nivel_minimo = "parcialmente_verificada"
