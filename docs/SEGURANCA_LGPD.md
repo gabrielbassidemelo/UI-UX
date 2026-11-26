@@ -1,4 +1,65 @@
-# Segurança, privacidade e LGPD
+# Relatório de segurança, privacidade e LGPD
+
+> As seções 1 a 4 descrevem a fase 2 (implantação em VM). O texto original da fase 1 segue ao final e
+> continua válido, exceto onde fala em tokens e login da integração não oficial.
+
+## 1. Onde os dados ficam e quem pode vê-los (fase 2)
+| Provedor | O que recebe | Onde fica | Observação |
+|---|---|---|---|
+| **Garmin** | Nada de novo: só requisições de leitura dos dados que ela já tem | Nuvem Garmin | Chave pessoal revogável a qualquer momento |
+| **Oracle Cloud (VM)** | **Todos os dados de saúde**, perfil, refeições, exames e backups | Disco da VM, na região que você escolher (São Paulo recomendada) | Disco cifrado pela Oracle com chaves dela. Quem tiver acesso de administrador à VM ou à conta Oracle consegue ler o banco. Os backups têm cifragem própria, com a sua frase-senha |
+| **Tailscale** | Nenhum conteúdo: o tráfego é cifrado de ponta a ponta (WireGuard) | — | Vê metadados: seus aparelhos, endereços e horários de conexão. Emite o certificado HTTPS do endereço `.ts.net`, cujo nome fica em registros públicos de certificados |
+| **Apple (Web Push)** | Notificação cifrada, com texto genérico ("há um novo relatório") | Em trânsito | Vê que uma notificação foi enviada ao seu aparelho e quando |
+| **GitHub** | Só código e documentação | Repositório privado | `.gitignore` bloqueia `data/`, bancos, backups e segredos; a CI usa dados sintéticos |
+| **Crossref** | DOIs das referências científicas (`kb verificar`) | — | Nenhum dado pessoal |
+| **Espelho da TACO no GitHub** | Um download anônimo da tabela de alimentos | — | Nenhum dado pessoal |
+| **Telegram / e-mail** | Só se você ativar esses canais | — | Texto genérico por padrão |
+| **Anthropic** | **Nada**, a menos que você ative a modalidade 3 com consentimento registrado | — | Desligada |
+
+**Risco residual que você precisa aceitar para ter operação autônoma:** os dados passam a ficar num
+servidor de terceiro. O banco SQLite não tem cifragem própria em nível de aplicação; a proteção em repouso
+é a cifragem de disco do provedor, e o controle de acesso é o da VM (usuário sem privilégios, nenhuma porta
+pública, acesso só pela sua rede privada). Cifrar o banco com chave que só você conhece exigiria digitar a
+chave a cada reinício da VM, o que contraria a operação autônoma; não foi implementado.
+
+**Termos dos provedores:** não consegui abrir os contratos da Oracle e da Tailscale neste ambiente. Antes
+de enviar dados reais, leia as políticas de privacidade e os termos de ambos quanto a dados sensíveis.
+O sistema é de uso pessoal: você é ao mesmo tempo titular e controlador dos dados.
+
+## 2. Controles implementados na fase 2
+- **Chave da Garmin:** digitada no terminal do servidor com eco desligado; gravada só em `secrets.env`
+  (600); nunca em código, banco, relatórios ou logs (há teste que procura a chave em todos os arquivos
+  gerados e nos logs).
+- **Integração não oficial desativada:** não é instalada no contêiner; `healthmon login` com senha recusa.
+- **API:** todas as rotas novas exigem sessão (teste percorre todas as rotas registradas); cabeçalho
+  anti-CSRF nas escritas; limite de 64 KB por requisição (16 MB só para laudos); validação de faixas
+  plausíveis; erros de validação retornam 400 sem detalhes internos.
+- **Arquivos de exames:** só PDF e imagem, nome sanitizado, pasta 700 e arquivo 600, sem processamento.
+- **Push:** chaves VAPID geradas localmente (600); só aceita destino `https://`; conteúdo genérico.
+- **Contêiner:** usuário sem privilégios, sistema de arquivos somente leitura, sem *capabilities*, limite
+  de memória e de processos, porta publicada só em `127.0.0.1`.
+- **VM:** atualizações de segurança automáticas; script opcional que fecha o SSH público depois que o
+  acesso pela rede privada funciona.
+- **Backups:** cifrados; cada backup é decifrado e tem a integridade verificada logo após ser criado.
+- **Retenção:** respostas brutas da Garmin apagadas após 400 dias e histórico de execuções após 90
+  (configurável); os indicadores diários ficam até você apagar.
+- **Seus direitos:** `healthmon exportar` (portabilidade) e `healthmon apagar-dados --confirmar` (exclusão).
+- **Dependências:** `pip-audit` sem vulnerabilidades conhecidas em 26/11/2026; roda a cada alteração na CI.
+- **Desenvolvimento:** nenhum dado real foi usado em testes, commits, capturas de tela ou no contexto dos
+  agentes; todos os testes usam dados sintéticos identificados como tais.
+
+## 3. Sobre o Claude Code e os seus dados
+Durante este desenvolvimento, o Claude Code não teve acesso a nenhum dado seu de saúde: a rede do ambiente
+bloqueia a Garmin e nenhuma chave foi fornecida. Em sessões futuras, se você colar saídas de comandos do
+servidor, elas passam pela Anthropic. Por isso `healthmon validar-garmin` mostra apenas nomes de campos e
+tipos, sem valores. Não cole relatórios, exportações ou o conteúdo do banco em conversas.
+
+## 4. Pendências de segurança conhecidas
+Ver a lista em `RELATORIO_FASE2.md`.
+
+---
+
+# Fase 1: texto original
 
 Dados de saúde são **dados pessoais sensíveis** (LGPD, art. 5º, II, e art. 11). O sistema foi desenhado
 para que eles fiquem no seu computador.
