@@ -24,7 +24,8 @@ from .metrics import CORE, METRICS, display_value
 
 Z_FORA = 1.0      # fora da faixa usual
 Z_PONTUAL = 1.5   # desvio pontual relevante
-Z_PERSIST = 1.25  # média de 7 dias afastada da base (calibrado: ~0–3% de falsos positivos em dados estáveis)
+Z_PERSIST = 1.25  # média de 7 dias afastada da base. Em simulação com ruído independente, ~0–3% de falsos
+# positivos; com autocorrelação realista (dias vizinhos parecidos) a taxa simulada sobe para ~10–14%.
 
 
 def d(s: str) -> date:
@@ -292,7 +293,7 @@ def correlations(store: Store, end: date, days: int = 90, min_n: int = 14) -> li
         rho, p = res
         a = abs(rho)
         forca = "fraca" if a < 0.3 else "moderada" if a < 0.5 else "forte"
-        if p >= 0.05:
+        if p >= 0.05 / len(PAIRS):          # Bonferroni: 8 pares testados em conjunto
             forca = "sem associação clara"
         out.append({"x": xk, "y": yk, "defasagem": lag, "descricao": desc, "n": len(xs),
                     "rho": round(rho, 2), "p": round(p, 4), "forca": forca})

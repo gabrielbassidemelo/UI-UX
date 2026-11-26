@@ -36,12 +36,30 @@ FIELDS: dict[str, tuple[type, Any, str]] = {
     "condicoes_saude": (list, None, "Condições de saúde diagnosticadas"),
     "medicamentos": (list, None, "Medicamentos em uso"),
     "liberacao_medica": (bool, None, "Tem liberação médica para exercício intenso?"),
+    "gestante_ou_lactante": (bool, None, "Está grávida ou amamentando?"),
     "restricoes_alimentares": (list, None, "Restrições/preferências alimentares"),
     "refeicoes_dia": (int, (2, 8), "Refeições por dia"),
     "fc_max_medida": (float, (120, 230), "FC máxima medida em teste (opcional)"),
     "cafeina_habitual_mg": (float, (0, 1500), "Cafeína habitual (mg/dia)"),
     "orcamento_alimentar_dia": (float, (0, 1000), "Orçamento alimentar diário em R$ (opcional)"),
 }
+MIN_AGE = 18
+PREGNANCY_TERMS = ("gestante", "gestacao", "gravid", "lactante", "lactacao", "amament")
+
+
+def pregnant_or_lactating(p: dict[str, Any]) -> bool:
+    import unicodedata
+    txt = " ".join(str(c) for c in p.get("condicoes_saude", []))
+    txt = "".join(c for c in unicodedata.normalize("NFD", txt.lower()) if unicodedata.category(c) != "Mn")
+    return bool(p.get("gestante_ou_lactante")) or any(t in txt for t in PREGNANCY_TERMS)
+
+
+def bmi(p: dict[str, Any], weight_kg: float | None) -> float | None:
+    if not weight_kg or not p.get("altura_cm"):
+        return None
+    return weight_kg / (p["altura_cm"] / 100) ** 2
+
+
 REQUIRED = {
     "metabolismo": ["sexo", "nascimento", "altura_cm"],
     "treino": ["objetivo", "experiencia", "dias_treino", "minutos_sessao", "equipamento", "limitacoes",
@@ -73,8 +91,12 @@ def validate(field: str, value: Any) -> Any:
     value = str(value).strip().lower()
     if rule == "date":
         d = date.fromisoformat(value)
-        if not (date(1920, 1, 1) <= d <= date.today()):
+        t = date.today()
+        if not (date(1920, 1, 1) <= d <= t):
             raise ValueError("nascimento: data implausível")
+        if t.year - d.year - ((t.month, t.day) < (d.month, d.day)) < MIN_AGE:
+            raise ValueError(f"Este sistema é destinado a adultos (≥ {MIN_AGE} anos); crianças e adolescentes "
+                             "precisam de acompanhamento profissional.")
         return d.isoformat()
     if value not in rule:
         raise ValueError(f"{field}: use um de {sorted(rule)}")
@@ -108,7 +130,11 @@ def age(p: dict[str, Any], today: date | None = None) -> int | None:
 def missing(db: Database, area: str | None = None) -> dict[str, list[str]]:
     p = get(db)
     areas = [area] if area else list(REQUIRED)
-    return {a: [f for f in REQUIRED[a] if f not in p] for a in areas}
+    out = {a: [f for f in REQUIRED[a] if f not in p] for a in areas}
+    if p.get("sexo") == "feminino" and "gestante_ou_lactante" not in p:   # pergunta obrigatória para mulheres
+        for a in out:
+            out[a].append("gestante_ou_lactante")
+    return out
 
 
 def record_weight(db: Database, day: str, weight_kg: float, body_fat_pct: float | None = None,

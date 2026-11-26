@@ -28,13 +28,16 @@ SAFETY = {
     "max_series_grupo_semana": {"iniciante": 12, "intermediario": 18, "avancado": 22},
     "max_hiit_semana": 2,
     "max_aumento_carga_pct": 10.0,        # por progressão, em um exercício
-    "max_aumento_volume_semana_pct": 20.0,
+    "max_sessoes_semana": 6,              # força + cardio: sempre sobra 1 dia sem treino estruturado
     "min_dias_descanso_semana": 1,
     "max_minutos_sessao": 120,
 }
+URGENT = ("Dor ou pressão no peito, desmaio, falta de ar intensa ou palpitações fortes são sinais de alerta: "
+          "procure atendimento de urgência agora (SAMU 192). Não treine.")
 STOP_SYMPTOMS = ("Interrompa o exercício e procure atendimento se sentir dor ou pressão no peito, falta de ar "
                  "desproporcional, tontura ou desmaio, palpitações incomuns ou dor articular aguda. Dor muscular "
                  "leve é esperada; dor aguda, não.")
+READINESS_Z = 1.5
 RED_FLAGS = ("dor no peito", "peito", "tontura", "desmaio", "febre", "falta de ar", "palpita")
 
 # chave: (nome, grupo, padrão, equipamentos, evitar-se-limitação, dica técnica)
@@ -161,14 +164,18 @@ def hr_zones(db: Database, cfg: Config, day: date | None = None) -> dict[str, An
     if p.get("fc_max_medida"):
         hmax, src = p["fc_max_medida"], "FC máxima medida"
     elif a is not None:
-        hmax, src = 208 - 0.7 * a, "estimativa de Tanaka (208 − 0,7 × idade); erro individual de ±10 bpm"
+        hmax, src = 208 - 0.7 * a, "estimativa de Tanaka (208 − 0,7 × idade); o desvio-padrão é de ~10 bpm, então o valor real pode diferir em até ~20 bpm"
     else:
         return {"disponivel": False, "faltam": ["nascimento ou fc_max_medida"]}
     rows = db.q("SELECT resting_hr FROM daily_metrics WHERE resting_hr IS NOT NULL ORDER BY date DESC LIMIT 14")
     rest = sorted(r["resting_hr"] for r in rows)[len(rows) // 2] if rows else 60
-    names = [("Z1", .5, .6, "recuperação"), ("Z2", .6, .7, "base aeróbica"), ("Z3", .7, .8, "ritmo moderado"),
-             ("Z4", .8, .9, "limiar"), ("Z5", .9, 1.0, "máximo")]
-    return {"disponivel": True, "fc_max": round(hmax), "fc_repouso": round(rest), "origem": src,
+    names = [("Z1", .3, .4, "muito leve, recuperação"), ("Z2", .4, .6, "moderado: dá para conversar"),
+             ("Z3", .6, .75, "vigoroso sustentável"), ("Z4", .75, .9, "forte, perto do limiar"), ("Z5", .9, 1.0, "máximo")]
+    meds = " ".join(str(m).lower() for m in p.get("medicamentos", []))
+    warn = ("Você informou medicamento que pode reduzir a frequência cardíaca (betabloqueador): zonas por FC não se "
+            "aplicam; guie-se pela percepção de esforço e pela orientação do seu médico."
+            if any(x in meds for x in ("olol", "betabloq", "carvedilol")) else None)
+    return {"disponivel": True, "fc_max": round(hmax), "fc_repouso": round(rest), "origem": src, "aviso": warn,
             "metodo": "reserva de frequência cardíaca (Karvonen)", "refs": ["tanaka2001", "garber2011"],
             "zonas": [{"zona": n, "de": round(rest + lo * (hmax - rest)), "ate": round(rest + hi * (hmax - rest)),
                        "uso": u} for n, lo, hi, u in names]}
@@ -178,9 +185,10 @@ def _cardio(goal: str, experience: str, cleared: bool, strength_days: int) -> li
     out = []
     z2 = {"condicionamento": (3, 40), "emagrecimento": (3, 35), "saude": (3, 30), "desempenho": (2, 40)}.get(goal, (2, 25))
     for i in range(z2[0]):
-        out.append({"tipo": "Aeróbico Z2", "duracao_min": z2[1], "intensidade": "Zona 2 (consegue conversar)",
+        out.append({"tipo": "Aeróbico Z2", "duracao_min": z2[1], "intensidade": "Zona 2: esforço moderado, dá para conversar",
                     "objetivo": "Base aeróbica e saúde cardiometabólica", "refs": ["garber2011", "bull2020"]})
-    if goal in ("condicionamento", "desempenho") and experience != "iniciante" and cleared:
+    out = out[:max(0, SAFETY["max_sessoes_semana"] - strength_days)]
+    if out and goal in ("condicionamento", "desempenho") and experience != "iniciante" and cleared and SAFETY["max_hiit_semana"] >= 1:
         out[-1] = {"tipo": "HIIT", "duracao_min": 25, "intensidade": "4–6 × 3–4 min em Z4–Z5, recuperação igual em Z1",
                    "objetivo": "VO2 máx.", "refs": ["milanovic2015"],
                    "condicao": "Somente com recuperação normal; nunca em dias consecutivos."}
@@ -193,14 +201,18 @@ def build_plan(db: Database, cfg: Config, start: date | None = None) -> dict[str
     if miss:
         raise ValueError("Complete o perfil antes de gerar o plano: " + ", ".join(miss))
     exp, goal = p["experiencia"], p["objetivo"]
-    cleared = bool(p.get("liberacao_medica")) and not p.get("condicoes_saude")
+    cleared = bool(p.get("liberacao_medica")) and not p.get("condicoes_saude") and not prof.pregnant_or_lactating(p)
     notes = []
     days = min(p["dias_treino"], SAFETY["max_dias_forca"][exp], 7 - SAFETY["min_dias_descanso_semana"])
     if days < p["dias_treino"]:
         notes.append(f"Dias de força limitados a {days}/semana para o nível {exp} (limite de segurança).")
     if not cleared:
         notes.append("Sem liberação médica registrada ou com condição de saúde informada: plano restrito a "
-                     "intensidade moderada, sem HIIT. Converse com seu médico antes de intensificar.")
+                     "intensidade moderada, sem HIIT. Faça uma avaliação médica antes de iniciar ou intensificar "
+                     "(um questionário de prontidão como o PAR-Q+ ajuda nessa conversa).")
+    if prof.pregnant_or_lactating(p):
+        notes.append("Gestação ou amamentação: o exercício deve ser orientado pelo obstetra; este plano é genérico e "
+                     "não foi adaptado para essa fase.")
     comp, acc, rir, rest, sets, objetivo = GOAL[goal]
     if not cleared:
         rir = max(rir, 3)
@@ -258,7 +270,7 @@ def build_plan(db: Database, cfg: Config, start: date | None = None) -> dict[str
                                                         "ombros ao fim das sessões ou nos dias de descanso.",
         "progressao": "Dupla progressão: primeiro complete o topo da faixa de repetições em todas as séries com "
                       "o RIR alvo; depois aumente a carga em 2,5–5% e volte à base da faixa.",
-        "seguranca": STOP_SYMPTOMS, "observacoes": notes,
+        "rir_minimo": 3 if not cleared else 0, "seguranca": STOP_SYMPTOMS, "observacoes": notes,
         "refs": ["acsm2009", "schoenfeld2017volume", "schoenfeld2016freq", "zourdos2016", "garber2011"],
     }
     return plan
@@ -347,18 +359,34 @@ def readiness(db: Database, cfg: Config, day: date) -> dict[str, Any]:
     store = an.load_store(db, day, w + 60)
     rec = an.recovery(store, day, w, mn)
     signals, score, sources = [], 0, 0
-    if rec.status != "indeterminada":
+    # Sinais objetivos INDEPENDENTES. Body Battery e prontidão do Garmin são índices compostos de HRV e sono
+    # e por isso não entram na conta (evita contar a mesma informação duas ou três vezes). Um grupo só conta
+    # se o desvio do dia for ≥ 1,5 desvio da sua base ou se o padrão for persistente.
+    groups = {"HRV": ["hrv_last_night"], "FC de repouso": ["resting_hr"], "Sono": ["sleep_score", "sleep_seconds"],
+              "Estresse durante o sono": ["sleep_stress_avg"]}
+    bad, seen = [], 0
+    for label, keys in groups.items():
+        hit = False
+        for k in keys:
+            a_ = an.assess(store, k, day, w, mn)
+            if a_.z is None or not a_.base.confiavel:
+                continue
+            seen += 1
+            if a_.leitura == "desfavoravel" and (abs(a_.z) >= READINESS_Z or a_.padrao == "persistente"):
+                hit = True
+        if hit:
+            bad.append(label)
+    if seen:
         sources += 1
-        n_bad = len(rec.sinais)
-        if rec.status == "atencao":
+        if len(bad) >= 3 or {"HRV", "FC de repouso"} <= set(bad):     # HRV baixa junto com FC de repouso alta pesa mais
             score += 2
-            signals.append(f"Indicadores objetivos: {n_bad} abaixo do seu padrão ({', '.join(rec.sinais[:4])})")
-        elif n_bad >= 2:
+            signals.append(f"Indicadores objetivos: {len(bad)} grupos independentes fora do seu padrão ({', '.join(bad)})")
+        elif len(bad) == 2:
             score += 1
-            signals.append(f"Indicadores objetivos: {n_bad} abaixo do seu padrão ({', '.join(rec.sinais)})")
-        elif n_bad == 1:
-            signals.append(f"Um único indicador fora do padrão ({rec.sinais[0]}): isoladamente não altera o treino")
-        if rec.persistente:
+            signals.append(f"Indicadores objetivos: 2 grupos fora do seu padrão ({', '.join(bad)})")
+        elif len(bad) == 1:
+            signals.append(f"Um único indicador fora do padrão ({bad[0]}): isoladamente não altera o treino")
+        if rec.persistente and len(bad) >= 2:
             score += 1
             signals.append("Padrão desfavorável persistente (3 dos últimos 4 dias)")
     ck = db.q1("SELECT * FROM checkins WHERE date=?", (day.isoformat(),))
@@ -381,7 +409,7 @@ def readiness(db: Database, cfg: Config, day: date) -> dict[str, Any]:
         sym = (ck.get("symptoms") or "").lower()
         red = any(f in sym for f in RED_FLAGS)
     sleep = store.value("sleep_seconds", day)
-    if sleep is not None:
+    if sleep is not None and "Sono" not in bad:        # não contar o sono duas vezes
         if sleep < 6 * 3600:
             score += 1
             signals.append(f"Sono curto na última noite ({sleep / 3600:.1f} h)")
@@ -398,11 +426,13 @@ def readiness(db: Database, cfg: Config, day: date) -> dict[str, Any]:
         level = "reduzido"
     else:
         level = "normal"
-    conf = "alta" if sources >= 2 and rec.status != "indeterminada" else "média" if sources >= 1 else "baixa"
+    conf = "alta" if sources >= 2 and seen >= 3 else "média" if sources >= 1 else "baixa"
     return {"nivel": level, "pontos": score, "sinais": signals, "confianca": conf, "fontes": sources,
             "tem_checkin": bool(ck), "recuperacao_objetiva": rec.status,
             "regra": "0–1 ponto: treino normal; 2–3: volume/intensidade reduzidos; ≥4: recuperação ativa ou descanso; "
-                     "sintomas de alerta: não treinar. Cada sinal vale 1–2 pontos; nenhum decide sozinho.",
+                     "sintomas de alerta: não treinar. Contam 4 grupos objetivos independentes (HRV, FC de repouso, sono, "
+                     "estresse no sono), a sua percepção, sono curto e pico de carga; nenhum decide sozinho. "
+                     "É uma regra de decisão transparente, não validada em estudo.",
             "refs": ["kiviniemi2007", "meeusen2013", "zourdos2016"]}
 
 
@@ -412,7 +442,7 @@ def todays_session(db: Database, cfg: Config, day: date) -> dict[str, Any]:
     out: dict[str, Any] = {"dia": day.isoformat(), "prontidao": ready, "seguranca": STOP_SYMPTOMS}
     if ready["nivel"] == "parar":
         out.update(tipo="descanso", titulo="Não treine hoje",
-                   texto="Você relatou sintomas que pedem cautela. Descanse e procure avaliação profissional se persistirem.")
+                   texto=URGENT + " Para febre ou mal-estar, descanse e procure avaliação profissional se não melhorar.")
         return out
     if not plan:
         out.update(tipo="sem_plano", titulo="Sem plano de treino ativo",
@@ -451,7 +481,7 @@ def todays_session(db: Database, cfg: Config, day: date) -> dict[str, Any]:
             changes.append("Volume reduzido em ~35% e 1 repetição a mais de reserva (sinais de recuperação incompleta).")
     for it in session["exercicios"]:
         it["series"] = max(2 if it["series"] >= 3 else 1, round(it["series"] * factor))
-        it["rir"] = max(0, min(5, it["rir"] + rir_adj))
+        it["rir"] = max(plan.get("rir_minimo", 0), min(5, it["rir"] + rir_adj))
         it["progressao"] = (progression(db, it["chave"], it["reps"], it["rir"]) if ready["nivel"] == "normal" and factor >= 1
                             else {"acao": "manter", "texto": "Hoje não é dia de aumentar carga: repita a última carga."})
     session["duracao_min"] = round(8 + sum(i["series"] * (i["descanso_s"] + 40) for i in session["exercicios"]) / 60)

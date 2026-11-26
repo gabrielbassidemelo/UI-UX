@@ -22,9 +22,13 @@ T95 = {1: 12.71, 2: 4.30, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 7: 2.36, 8: 2.31, 
 def t95(df: int) -> float:
     if df <= 0:
         return float("inf")
+    prev = None
     for k in sorted(T95):
-        if df <= k:
+        if df == k:
             return T95[k]
+        if df < k:
+            return T95[prev] if prev else T95[k]     # arredonda para MENOS graus de liberdade (conservador)
+        prev = k
     return 1.96
 
 
@@ -73,6 +77,12 @@ def ols_slope(xs: Sequence[float], ys: Sequence[float]) -> dict[str, float] | No
     res = [y - (a + b * x) for x, y in zip(xs, ys)]
     s2 = sum(r * r for r in res) / (n - 2)
     se = math.sqrt(s2 / sxx)
+    # Resíduos de séries diárias são autocorrelacionados (dias vizinhos se parecem), o que estreita
+    # artificialmente o intervalo. Correção de tamanho efetivo pela autocorrelação de lag 1.
+    den = sum(r * r for r in res)
+    r1 = sum(a * b for a, b in zip(res, res[1:])) / den if den else 0.0
+    if 0 < r1 < 0.95:
+        se *= math.sqrt((1 + r1) / (1 - r1))
     t = t95(n - 2)
     return {"slope": b, "intercept": a, "se": se, "lo": b - t * se, "hi": b + t * se,
             "n": n, "resid_sd": math.sqrt(s2)}
@@ -104,8 +114,21 @@ def weekday_effect(store: an.Store, key: str, end: date, days: int = 90) -> dict
         return None
     dev = {wd: (st.median(v) - med) / mad for wd, v in by.items()}
     spread = max(dev.values()) - min(dev.values())
+    # Com 7 medianas de poucos pontos, uma amplitude grande aparece por acaso com frequência.
+    # Teste de permutação: embaralha os dias da semana e vê quão rara é a amplitude observada.
+    import random
+    rng, wds, hits, iters = random.Random(7), [d_.weekday() for d_, _ in pts], 0, 400
+    for _ in range(iters):
+        rng.shuffle(wds)
+        g: dict[int, list[float]] = {}
+        for wd, v in zip(wds, vals):
+            g.setdefault(wd, []).append(v)
+        ms = [st.median(v) for v in g.values()]
+        if (max(ms) - min(ms)) / mad >= spread:
+            hits += 1
+    pval = (hits + 1) / (iters + 1)
     names = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
-    return {"n": len(pts), "amplitude_z": round(spread, 2), "relevante": spread >= 1.0,
+    return {"n": len(pts), "amplitude_z": round(spread, 2), "p": round(pval, 3), "relevante": pval < 0.01 and spread >= 1.0,
             "desvios": {names[k]: round(v, 2) for k, v in sorted(dev.items())}}
 
 
@@ -230,7 +253,7 @@ def backtest(values: Sequence[float], min_train: int = 28) -> dict[str, Any] | N
     chosen = candidate if test[candidate] <= 0.95 * base else naive
     return {"n_previsoes": n, "n_selecao": cut, "n_teste": n - cut,
             "mae_teste": {m: round(v, 3) for m, v in test.items()},
-            "mase_teste": {m: round(v / base, 3) for m, v in test.items()},
+            "mae_relativo_teste": {m: round(v / base, 3) for m, v in test.items()},
             "candidato": candidate, "escolhido": chosen,
             "ganho_pct_teste": round(100 * (1 - test[chosen] / base), 1)}
 

@@ -44,6 +44,12 @@ def add_goal(db: Database, metric: str, target: float, deadline: str, day: date 
     if dl <= day:
         raise ValueError("O prazo precisa ser no futuro")
     start = _metric_value(db, metric, day)
+    if metric == "peso":
+        pf = prof.get(db)
+        if pf.get("altura_cm") and target / (pf["altura_cm"] / 100) ** 2 < nut.SAFETY["imc_minimo_para_deficit"]:
+            raise ValueError("Meta de peso corresponde a IMC abaixo de 18,5 (baixo peso). Converse com um profissional de saúde.")
+        if start and target < start and (prof.pregnant_or_lactating(pf) or (prof.bmi(pf, start) or 99) < nut.SAFETY["imc_minimo_para_deficit"]):
+            raise ValueError("Meta de perda de peso não é aceita nesta condição; procure orientação profissional.")
     if metric == "peso" and start:
         weeks = (dl - day).days / 7
         if (start - target) / start * 100 / weeks > nut.SAFETY["perda_max_pct_semana"]:

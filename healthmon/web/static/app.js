@@ -250,12 +250,12 @@
       <div class="card"><button class="secondary" id="propose-plan" ${t.faltam.length ? "disabled" : ""}>${t.ativo ? "Gerar nova proposta de plano" : "Gerar proposta de plano"}</button>
         <p class="small muted">Qualquer mudança de plano só vale depois que você confirmar.</p></div>
       <h2>Zonas de frequência cardíaca</h2><div class="card">${t.zonas.disponivel ? `<div class="tbl"><table><thead><tr><th>Zona</th><th>Faixa</th><th>Uso</th></tr></thead><tbody>${t.zonas.zonas.map((z) => `<tr><td>${z.zona}</td><td>${z.de}–${z.ate} bpm</td><td>${esc(z.uso)}</td></tr>`).join("")}</tbody></table></div>
-        <p class="small muted">FC máx. ${t.zonas.fc_max} bpm (${esc(t.zonas.origem)}); repouso ${t.zonas.fc_repouso} bpm; ${esc(t.zonas.metodo)}.</p>` : `<p class="muted">Informe a data de nascimento no perfil.</p>`}</div>
+        ${t.zonas.aviso ? `<p class="notice">${esc(t.zonas.aviso)}</p>` : ""}<p class="small muted">FC máx. ${t.zonas.fc_max} bpm (${esc(t.zonas.origem)}); repouso ${t.zonas.fc_repouso} bpm; ${esc(t.zonas.metodo)}.</p>` : `<p class="muted">Informe a data de nascimento no perfil.</p>`}</div>
       <h2>Últimos 7 dias</h2><div class="card"><p>${t.semana.sessoes.length} sessão(ões) · volume ${nf(t.semana.volume_total_kg)} kg</p>
         <p class="small">${Object.entries(t.semana.series_por_grupo).map(([g, n]) => `${esc(g)}: ${n} séries`).join(" · ") || "Nenhuma série registrada."}</p>
         <form class="f" id="hist"><label>Evolução de um exercício<select name="exercicio">${(t.ativo ? [...new Map(t.ativo.sessoes.flatMap((s) => s.exercicios).map((e) => [e.chave, e.exercicio])).entries()] : []).map(([k, n]) => `<option value="${esc(k)}">${esc(n)}</option>`).join("")}</select></label><button class="secondary" type="submit">Ver evolução</button></form>
         <div id="hist-out"></div></div>
-      <div class="card"><h3 class="sec">Limites de segurança do sistema</h3><p class="small">Séries semanais por grupo: até ${Object.values(t.limites.max_series_grupo_semana).join("/")} (iniciante/intermediário/avançado) · HIIT: até ${t.limites.max_hiit_semana}×/semana · aumento de carga por progressão: até ${t.limites.max_aumento_carga_pct}% · pelo menos ${t.limites.min_dias_descanso_semana} dia de descanso. Esses limites não mudam sozinhos.</p>${evid(t.evidencias)}</div>`;
+      <div class="card"><h3 class="sec">Limites de segurança do sistema</h3><p class="small">Séries semanais por grupo: até ${Object.values(t.limites.max_series_grupo_semana).join("/")} (iniciante/intermediário/avançado) · HIIT: até ${t.limites.max_hiit_semana}×/semana · aumento de carga por progressão: até ${t.limites.max_aumento_carga_pct}% · no máximo ${t.limites.max_sessoes_semana} sessões por semana (força + cardio). Esses limites não mudam sozinhos.</p>${evid(t.evidencias)}</div>`;
     wireNav();
     const conf = $("#confirm-plan"); if (conf) conf.onclick = async () => { await post(`/api/treino/confirmar/${conf.dataset.id}`); toast("Plano ativado"); render(); };
     $("#propose-plan").onclick = async () => { try { await post("/api/treino/propor", {}); toast("Proposta criada: revise e confirme"); render(); } catch (e) { toast(e.message); } };
@@ -286,7 +286,7 @@
         <button class="primary" id="confirm-meta">Confirmar esta meta</button></div>` : ""}
       ${s.meta && rev.estado !== "proposta" ? `<h2>Meta em vigor</h2><div class="card">${tgt(s.meta)}${chip(s.meta.confianca, CONF[s.meta.confianca])}</div>` : ""}
       <h2>Refeições de ${dateBR(s.dia)}</h2><div class="card">
-        ${s.refeicoes.length ? s.refeicoes.map((m) => `<div class="row"><span>${esc(m.description)}<small>${m.time || ""} P ${nf(m.protein_g)} · C ${nf(m.carb_g)} · G ${nf(m.fat_g)}${m.uncertainty_pct ? ` · incerteza ±${nf(m.uncertainty_pct)}%` : ""}</small></span>
+        ${s.refeicoes.length ? s.refeicoes.map((m) => `<div class="row"><span>${esc(m.description)}<small>${esc(m.time || "")} P ${nf(m.protein_g)} · C ${nf(m.carb_g)} · G ${nf(m.fat_g)}${m.uncertainty_pct ? ` · incerteza ±${nf(m.uncertainty_pct)}%` : ""}</small></span>
           <span class="r">${nf(m.kcal)} kcal<br><button class="danger" data-del="${m.id}">remover</button></span></div>`).join("") : `<p class="empty">Nenhuma refeição registrada hoje.</p>`}
         <div class="row"><strong>Total</strong><span class="r"><strong>${nf(s.total.kcal)} kcal</strong><small>P ${nf(s.total.protein_g)} · C ${nf(s.total.carb_g)} · G ${nf(s.total.fat_g)} · fibra ${nf(s.total.fiber_g)}</small></span></div></div>
       <h2>Registrar por texto</h2><div class="card">
@@ -420,11 +420,11 @@
       <div class="card"><div class="tbl"><table><thead><tr><th>Indicador</th><th class="num">Atual</th><th class="num">Anterior</th><th class="num">Var.</th></tr></thead><tbody>${cmp.linhas.map((l) => `<tr><td>${esc(l.rotulo)}</td><td class="num">${fmtVal(l.metrica, l.atual.media)}</td><td class="num">${fmtVal(l.metrica, l.anterior.media)}</td>
         <td class="num ${l.leitura === "favoravel" ? "fav-t" : l.leitura === "desfavoravel" ? "desf-t" : ""}">${l.variacao_pct == null ? "—" : (l.variacao_pct > 0 ? "+" : "") + nf(l.variacao_pct) + "%"}</td></tr>`).join("")}</tbody></table></div></div>
       <h2>Padrões observados em você</h2><div class="card">${ap.padroes.map((p) => `<div class="row"><span>${esc(p.titulo)}<small>${esc(p.texto)}</small></span></div>`).join("")}
-        <p class="small muted">Comparações observacionais dos últimos 90 dias; exigem ao menos 6 dias em cada grupo e não provam causa.</p></div>
+        <p class="small muted">Comparações observacionais dos últimos 90 dias; exigem ao menos 6 dias em cada grupo, usam limiar corrigido para 4 comparações e não provam causa.</p></div>
       <h2>Experimentos individuais</h2><div class="card">${ap.experimentos.map(expHtml).join("") || `<p class="empty">Nenhum experimento ainda.</p>`}
         <details><summary>Iniciar experimento</summary><div class="inner"><form class="f" id="exp"><label>O que testar<select name="fator">${Object.entries(ap.fatores).map(([k, v]) => `<option value="${k}">${esc(v[0])}: ${esc(v[1])} × ${esc(v[2])}</option>`).join("")}</select></label>
           <label>O que observar<select name="desfecho">${Object.entries(ap.desfechos).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></label>
-          <label>Duração (dias)<input name="dias" type="number" min="14" max="56" value="28"></label><button class="primary" type="submit">Começar amanhã</button></form>
+          <label>Duração (dias)<input name="dias" type="number" min="20" max="56" value="28"></label><button class="primary" type="submit">Começar amanhã</button></form>
           <p class="small muted">Só mudanças de rotina de baixo risco. O sistema sorteia a ordem das condições em blocos de 2 dias; você marca diariamente se seguiu. Um experimento por vez.</p></div></details></div>`;
     $$("[data-cmp]").forEach((b) => (b.onclick = () => { state.cmp = +b.dataset.cmp; render(); }));
     $$("[data-delgoal]").forEach((b) => (b.onclick = async () => { await api(`/api/objetivos/${b.dataset.delgoal}`, { method: "DELETE" }); render(); }));

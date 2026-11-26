@@ -37,6 +37,26 @@ def _n(s: str) -> str:
     return "".join(c for c in s if unicodedata.category(c) != "Mn")
 
 
+SYNONYMS = {  # termo da ficha -> formas equivalentes (casadas no INÍCIO de palavra)
+    "renal": ("renal", "rim", "rins", "drc", "nefropat", "nefrit", "dialise", "hemodialise", "transplante renal", "insuficiencia renal"),
+    "rim": (),
+    "arritmia": ("arritmia", "taquicardia", "fibrila", "palpita", "extrassistol"),
+    "fibrila": ("fibrila", "flutter"),
+    "hipertens": ("hipertens", "pressao alta"),
+    "gesta": ("gesta", "gravid", "lacta", "amament"),
+    "insonia": ("insonia",),
+    "alergia a leite": ("alergia a leite", "alergia ao leite", "aplv", "alergia a proteina do leite"),
+    "aplv": (),
+}
+
+
+def term_matches(term: str, text: str) -> bool:
+    """Casa o termo (e sinônimos) apenas no início de palavra: 'rim' não casa com 'primária'."""
+    import re as _re
+    forms = SYNONYMS.get(term, (term,))
+    return any(_re.search(rf"(?<![a-z0-9]){_re.escape(f)}", text) for f in forms)
+
+
 def check_substance(name: str) -> dict[str, Any] | None:
     n = _n(name) + " "
     for k, why in BANNED.items():
@@ -80,7 +100,8 @@ SHEETS: dict[str, dict[str, Any]] = {
         "nome": "Cafeína", "finalidade": "Desempenho agudo (resistência, força, atenção).", "populacao": "Adultos saudáveis.", "evidencia": "forte",
         "beneficios": "Melhora pequena a moderada de desempenho em muitos indivíduos; resposta bastante variável.",
         "dose": "3–6 mg/kg cerca de 60 min antes do treino nos estudos; doses de ~2–3 mg/kg já mostram efeito. "
-                "Referência de segurança (EFSA): até 400 mg/dia e 200 mg por dose em adultos saudáveis.",
+                "Referência de segurança (EFSA): até 400 mg/dia e 200 mg por dose em adultos saudáveis; em pessoas "
+                "mais pesadas, 3–6 mg/kg ultrapassa esse teto por dose, e o sistema usa o teto.",
         "horario": "Evitar nas 6–8 horas antes de dormir.",
         "adversos": "Ansiedade, taquicardia, tremor, refluxo e piora do sono.",
         "contra": {"arritmia": "Arritmia: só com liberação médica.", "hipertens": "Hipertensão: converse com o médico.",
@@ -90,7 +111,7 @@ SHEETS: dict[str, dict[str, Any]] = {
                        "venvanse": "Soma de efeito estimulante.", "ritalina": "Soma de efeito estimulante.",
                        "teofilina": "Aumenta efeitos adversos.", "ciprofloxacino": "Reduz a eliminação da cafeína.",
                        "clozapina": "Cafeína altera níveis do medicamento.", "litio": "Mudanças no consumo alteram níveis de lítio."},
-        "sono": "Prejudica o sono mesmo quando tomada 6 horas antes de deitar.",
+        "sono": "Pode prejudicar o sono; em um ensaio, 400 mg tomados 6 horas antes de deitar reduziram o sono em mais de 1 hora.",
         "custo": "Baixo custo (café também conta); o limite é a tolerância e o sono.",
         "profissional": "Necessária se houver condição cardiovascular, ansiedade, gestação ou uso de estimulantes.",
         "refs": ["guest2021", "efsa2015caffeine", "drake2013", "clark2017"]},
@@ -168,6 +189,9 @@ def evaluate(db: Database, cfg: Config, day: date | None = None) -> dict[str, An
     if miss:
         return {"disponivel": False, "faltam": miss,
                 "texto": "Antes de qualquer avaliação individual, informe (mesmo que seja 'nenhum'): " + ", ".join(miss) + "."}
+    if prof.pregnant_or_lactating(p):
+        return {"disponivel": False, "faltam": [], "texto": "Gestação ou amamentação: o sistema não avalia suplementos nessa fase. "
+                "Qualquer suplemento, inclusive cafeína e vitaminas, deve ser definido com o obstetra."}
     meds = [_n(m) for m in p.get("medicamentos", [])]
     conds = [_n(c) for c in p.get("condicoes_saude", [])]
     diet = " ".join(_n(r) for r in p.get("restricoes_alimentares", []))
@@ -177,8 +201,9 @@ def evaluate(db: Database, cfg: Config, day: date | None = None) -> dict[str, An
     in_use = {r["key"]: r for r in db.q("SELECT * FROM user_supplements WHERE status='em_uso'")}
     out = []
     for key, s in SHEETS.items():
-        contra = [txt for term, txt in s["contra"].items() if any(term in c for c in conds)]
-        inter = [f"{m}: {txt}" for term, txt in s["interacoes"].items() for m in meds if term in m]
+        health_txt = conds + [diet]            # alergias costumam ser informadas em restrições alimentares
+        contra = list(dict.fromkeys(txt for term, txt in s["contra"].items() if any(term_matches(term, c) for c in health_txt)))
+        inter = [f"{m}: {txt}" for term, txt in s["interacoes"].items() for m in meds if term_matches(term, m)]
         status, why = "desnecessario", ""
         if key == "creatina":
             if goal in ("hipertrofia", "forca", "recomposicao", "desempenho", "emagrecimento"):
@@ -196,10 +221,17 @@ def evaluate(db: Database, cfg: Config, day: date | None = None) -> dict[str, An
                        f"({target['proteina_g']} g). Ajustar as refeições é a primeira opção; proteína em pó é conveniência.")
         elif key == "cafeina":
             hab = p.get("cafeina_habitual_mg")
-            if hab is not None and w and hab >= 400:
-                status, why = "inadequado", f"Você já consome cerca de {hab:.0f} mg/dia, no limite de referência de segurança; acrescentar não é indicado."
+            room = None if hab is None else 400 - hab
+            if room is not None and room < 100:
+                status, why = "inadequado", (f"Você já consome cerca de {hab:.0f} mg/dia; somar uma dose pré-treino passaria da "
+                                             "referência de segurança de 400 mg/dia. Acrescentar não é indicado.")
+            elif hab is None:
+                status, why = "dados_insuficientes", "Informe no perfil a sua cafeína habitual (mg/dia) para avaliar a margem de segurança."
             elif goal in ("desempenho", "condicionamento", "forca"):
-                status, why = "potencialmente_relevante", "Pode ajudar em sessões-chave, se você tolera bem e toma longe do horário de dormir."
+                dose = min(200, room, 3 * w) if w else min(200, room)
+                status, why = "potencialmente_relevante", (
+                    f"Pode ajudar em sessões-chave, se você tolera bem. Para o seu caso, a dose única fica limitada a cerca de "
+                    f"{dose:.0f} mg (teto de 200 mg por dose e de 400 mg/dia somando os {hab:.0f} mg habituais), longe do horário de dormir.")
             else:
                 why = "Sem necessidade para o seu objetivo; o café habitual já fornece cafeína."
         elif key == "beta-alanina":
@@ -216,20 +248,28 @@ def evaluate(db: Database, cfg: Config, day: date | None = None) -> dict[str, An
             why = ("A evidência para sono é fraca, e dados de sono do relógio não indicam deficiência de magnésio. "
                    "Alimentos ricos em magnésio são a primeira opção.")
         elif key == "vitamina d":
-            lab = db.q1("SELECT value, unit, ref_low, date FROM labs WHERE analyte_key='vitamina_d' ORDER BY date DESC LIMIT 1")
-            if not lab:
+            lab = db.q1("SELECT value, unit, ref_low, ref_high, date FROM labs WHERE analyte_key='vitamina_d' ORDER BY date DESC LIMIT 1")
+            old = lab and (day - date.fromisoformat(lab["date"])).days > 365
+            desc = f"{lab['value']:g} {lab['unit'] or ''}".strip() if lab and lab["value"] is not None else ""
+            if not lab or lab["value"] is None:
                 status, why = "dados_insuficientes", "A indicação depende de exame de sangue (25-OH-vitamina D). Dados do relógio não avaliam vitamina D."
-            elif lab["ref_low"] is not None and lab["value"] is not None and lab["value"] < lab["ref_low"]:
-                status, why = "requer_avaliacao", (f"Seu exame de {lab['date']} ({lab['value']:g} {lab['unit'] or ''}) está abaixo da referência do "
+            elif old:
+                status, why = "dados_insuficientes", f"Seu último exame ({lab['date']}, {desc}) tem mais de 12 meses e não reflete a situação atual. Converse com o médico sobre repetir."
+            elif lab["ref_low"] is None and lab["ref_high"] is None:
+                status, why = "requer_avaliacao", f"Seu exame de {lab['date']} ({desc}) foi registrado sem a faixa de referência do laboratório; o sistema não o interpreta. Leve ao médico."
+            elif lab["ref_low"] is not None and lab["value"] < lab["ref_low"]:
+                status, why = "requer_avaliacao", (f"Seu exame de {lab['date']} ({desc}) está abaixo da referência do "
                                                    "laboratório. Leve ao médico: a dose de correção é definida por ele.")
+            elif lab["ref_high"] is not None and lab["value"] > lab["ref_high"]:
+                status, why = "inadequado", f"Seu exame de {lab['date']} ({desc}) está acima da referência do laboratório: não suplemente e procure o médico."
             else:
                 why = f"Seu exame de {lab['date']} está dentro da referência do laboratório; suplementar não trouxe benefício em ensaios com pessoas sem deficiência."
         elif key == "eletrolitos":
-            long_ = db.q1("SELECT COUNT(*) n FROM activities WHERE date>=? AND duration_s>=5400", ((day - timedelta(days=27)).isoformat(),))
+            long_ = db.q1("SELECT COUNT(*) n FROM workout_sessions WHERE date>=? AND duration_min>=90", ((day - timedelta(days=27)).isoformat(),))
             if long_ and long_["n"] >= 2:
-                status, why = "potencialmente_relevante", f"Você fez {long_['n']} atividades com mais de 90 minutos nas últimas 4 semanas; nelas a reposição de sódio pode ajudar."
+                status, why = "potencialmente_relevante", f"Você registrou {long_['n']} sessões com 90 minutos ou mais nas últimas 4 semanas; nelas a reposição de sódio pode ajudar."
             else:
-                why = "Seus treinos recentes têm menos de 90 minutos; água e alimentação normal são suficientes."
+                why = "Você não registrou sessões de 90 minutos ou mais; água e alimentação normal são suficientes."
         if contra:
             status = "inadequado"
             why = "Contraindicação a partir do que você informou. " + why

@@ -6,7 +6,7 @@ origem dos dados. Referências (chaves da base em kb/evidencias.json):
 
 - TMB: Mifflin-St Jeor (mifflin1990), validada em adultos com e sem obesidade; erro
   individual típico de ±10% (frankenfield2005). Cunningham (cunningham1980) usa massa livre
-  de gordura e foi derivada/validada sobretudo em pessoas magras e ativas; só é calculada
+  de gordura e foi derivada/validada sobretudo em pessoas pessoas ativas; só é calculada
   com percentual de gordura informado, e herda o erro dessa medida.
 - TDEE por três vias independentes: (1) fórmula × nível de atividade (heurística por passos,
   tudorlocke2004); (2) calorias totais do Garmin (erro de vestíveis: shcherbina2017);
@@ -58,8 +58,8 @@ def bmr(db: Database, cfg: Config, day: date | None = None) -> dict[str, Any]:
     out = {"disponivel": True, "peso_kg": w, "peso_origem": w_src, "idade": a,
            "mifflin": round(m), "intervalo": [round(m * (1 - BMR_REL_ERR)), round(m * (1 + BMR_REL_ERR))],
            "equacao_principal": "Mifflin-St Jeor", "refs": REFS["tmb"],
-           "nota": "Estimativa por equação; erro individual típico de ±10% e, em algumas pessoas, maior. "
-                   "Não equivale a calorimetria indireta."}
+           "nota": "Estimativa por equação. Mesmo a melhor equação erra mais de 10% em cerca de 2 a 3 de cada "
+                   "10 pessoas; o intervalo de ±10% mostrado não é garantia. Não equivale a calorimetria indireta."}
     bf = db.q1("SELECT body_fat_pct, date, source FROM body_measurements WHERE body_fat_pct IS NOT NULL "
                "AND date<=? ORDER BY date DESC LIMIT 1", (day.isoformat(),))
     if bf:
@@ -67,8 +67,8 @@ def bmr(db: Database, cfg: Config, day: date | None = None) -> dict[str, Any]:
         out.update(cunningham=round(cunningham(ffm)), massa_livre_gordura_kg=round(ffm, 1),
                    gordura_pct=bf["body_fat_pct"], gordura_origem=f"{bf['source']} em {bf['date']}",
                    nota_cunningham="Cunningham depende do percentual de gordura informado (bioimpedância e "
-                                   "dobras têm erro de vários pontos percentuais) e foi derivada em pessoas "
-                                   "magras e ativas; tende a superestimar em quem tem mais gordura corporal.")
+                                   "dobras têm erro de vários pontos percentuais). É mais usada e estudada em "
+                                   "pessoas ativas e magras; fora desse perfil a confiabilidade é menor.")
     return out
 
 
@@ -185,6 +185,15 @@ def tdee(db: Database, cfg: Config, end: date | None = None, days: int = 28) -> 
                                           f"e cobertura ≥{int(MIN_LOG_COVERAGE*100)}% (há {len(logged)} de {days}).")
 
     v = out["vias"]
+    # Salvaguarda: estimativa recalibrada muito abaixo da fórmula, com qualquer tendência de peso, indica
+    # com mais probabilidade registro alimentar incompleto (lichtman1992) do que metabolismo baixo.
+    # Nesse caso ela é mostrada, mas NÃO é usada para definir metas.
+    if "adaptativa" in v and "formula" in v and v["adaptativa"]["intervalo"][1] < 0.85 * v["formula"]["kcal"]:
+        out["sub_registro"] = {"refs": REFS["adaptacao"], "texto": (
+            "O gasto calculado pelos seus registros ficou muito abaixo do previsto para o seu corpo. A explicação mais "
+            "comum é registro alimentar incompleto (estudos mostram sub-registro de até ~50%). Por segurança, as metas "
+            "usam a estimativa por fórmula e Garmin, não a recalibrada.")}
+        v = {k: x for k, x in v.items() if k != "adaptativa"}
     if "adaptativa" in v:
         best, src, conf = v["adaptativa"], "adaptativa (seus dados de ingestão e peso)", "média"
         if days >= 42 and out["registro_alimentar"]["cobertura"] >= 0.85:
@@ -211,7 +220,7 @@ def _adaptation_flag(t: dict[str, Any], days: int) -> dict[str, Any] | None:
         return None
     if (t["peso"].get("kg_semana") or 0) >= -0.1:
         return None
-    if v["adaptativa"]["intervalo"][1] < 0.9 * v["formula"]["kcal"]:
+    if t.get("sub_registro") or v["adaptativa"]["intervalo"][1] < 0.9 * v["formula"]["kcal"]:
         return {"hipotese": True, "refs": REFS["adaptacao"],
                 "texto": "Seu gasto estimado pelos seus dados está abaixo do previsto pela fórmula, mesmo "
                          "considerando a incerteza. Isso é compatível com adaptação metabólica durante a "

@@ -89,12 +89,153 @@ def test_adaptation_flag_is_hypothesis_with_alternative(cfg, db):
 
 # ------------------------------------------------------------- nutrição: limites
 def test_deficit_floor_and_caps(cfg, db):
-    prof.update(db, {**BASE, "sexo": "feminino", "altura_cm": 155})
-    prof.record_weight(db, END.isoformat(), 45)
+    prof.update(db, {**BASE, "sexo": "feminino", "altura_cm": 155, "gestante_ou_lactante": False})
+    prof.record_weight(db, END.isoformat(), 52)
     t = nut.compute_targets(db, cfg, END)
     assert t["kcal"] >= nut.SAFETY["piso_kcal"]["feminino"]
     assert t["kcal"] >= t["tdee"]["kcal"] * 0.75 - 10
-    assert t["gordura_g"] >= 0.6 * 45 - 1 and t["proteina_g"] <= 2.5 * 45 + 1
+    assert t["gordura_g"] >= 0.6 * 52 - 1 and t["proteina_g"] <= 2.5 * 52 + 1
+
+
+# ------------------------------------------- achados da revisão científica independente
+def test_underweight_never_gets_deficit_or_lower_weight_goal(cfg, db):
+    prof.update(db, {**BASE, "sexo": "feminino", "altura_cm": 165, "gestante_ou_lactante": False})
+    prof.record_weight(db, END.isoformat(), 42)                       # IMC 15,4
+    t = nut.compute_targets(db, cfg, END)
+    assert t["balanco_kcal"] == 0 and "baixo peso" in t["bloqueio"] and "médico" in t["bloqueio"]
+    with pytest.raises(ValueError):
+        planner.add_goal(db, "peso", 40, (END + timedelta(days=200)).isoformat(), END)
+    prof.record_weight(db, END.isoformat(), 53)                       # IMC 19,5: déficit limitado a 10%
+    t = nut.compute_targets(db, cfg, END)
+    assert t["kcal"] >= t["tdee"]["kcal"] * 0.9 - 10 and any("próximo do limite" in o for o in t["observacoes"])
+    with pytest.raises(ValueError, match="18,5"):
+        planner.add_goal(db, "peso", 48, (END + timedelta(days=300)).isoformat(), END)
+
+
+def test_minors_rejected_and_pregnancy_blocks_deficit_and_supplements(cfg, db):
+    with pytest.raises(ValueError, match="adultos"):
+        prof.update(db, {"nascimento": (END - timedelta(days=14 * 365)).isoformat()})
+    prof.update(db, {**BASE, "sexo": "feminino"})
+    assert "gestante_ou_lactante" in prof.missing(db, "nutricao")["nutricao"]      # pergunta obrigatória
+    prof.update(db, {"gestante_ou_lactante": True})
+    t = nut.compute_targets(db, cfg, END)
+    assert t["balanco_kcal"] == 0 and "obstetra" in t["bloqueio"]
+    s = sup.evaluate(db, cfg, END)
+    assert s["disponivel"] is False and "obstetra" in s["texto"]
+    prof.update(db, {"gestante_ou_lactante": False, "condicoes_saude": ["gestante 20 semanas"]})
+    assert sup.evaluate(db, cfg, END)["disponivel"] is False
+    assert all(e["rir"] >= 3 for se in tr.build_plan(db, cfg, END)["sessoes"] for e in se["exercicios"])
+
+
+@pytest.mark.parametrize("cond,blocked", [("DRC estágio 3", True), ("nefropatia diabética", True), ("insuficiência renal", True),
+                                          ("pedra nos rins", True), ("hipertensão primária", False), ("rinite", False)])
+def test_kidney_terms_match_whole_words(cfg, db, cond, blocked):
+    prof.update(db, {**BASE, "objetivo": "hipertrofia", "condicoes_saude": [cond]})
+    c = {i["chave"]: i for i in sup.evaluate(db, cfg, END)["itens"]}["creatina"]
+    assert (c["status"] == "inadequado") is blocked
+
+
+def test_milk_allergy_in_restrictions_and_caffeine_room(cfg, db):
+    prof.update(db, {**BASE, "objetivo": "forca", "restricoes_alimentares": ["APLV"], "cafeina_habitual_mg": 350})
+    by = {i["chave"]: i for i in sup.evaluate(db, cfg, END)["itens"]}
+    assert by["whey"]["status"] == "inadequado" and by["cafeina"]["status"] == "inadequado"
+    prof.update(db, {"cafeina_habitual_mg": 100})
+    caf = {i["chave"]: i for i in sup.evaluate(db, cfg, END)["itens"]}["cafeina"]
+    assert caf["status"] == "potencialmente_relevante" and "200 mg" in caf["justificativa"]
+    prof.update(db, {"condicoes_saude": ["taquicardia supraventricular"]})
+    assert {i["chave"]: i for i in sup.evaluate(db, cfg, END)["itens"]}["cafeina"]["status"] == "inadequado"
+
+
+def test_vitamin_d_without_reference_old_or_high(cfg, db):
+    prof.update(db, BASE)
+    get = lambda: {i["chave"]: i for i in sup.evaluate(db, cfg, END)["itens"]}["vitamina d"]  # noqa: E731
+    labs.add_result(db, (END - timedelta(days=30)).isoformat(), "Vitamina D", 8, "ng/mL")          # sem referência
+    assert get()["status"] == "requer_avaliacao" and "sem a faixa de referência" in get()["justificativa"]
+    db.x("DELETE FROM labs")
+    labs.add_result(db, (END - timedelta(days=800)).isoformat(), "Vitamina D", 8, "ng/mL", 30, 100)
+    assert get()["status"] == "dados_insuficientes" and "12 meses" in get()["justificativa"]
+    db.x("DELETE FROM labs")
+    labs.add_result(db, END.isoformat(), "Vitamina D", 160, "ng/mL", 30, 100)
+    assert get()["status"] == "inadequado"
+
+
+def test_hba1c_is_not_confused_with_hemoglobin(cfg, db):
+    assert labs.analyte_key("Hemoglobina glicada (HbA1c)") == "hba1c" and labs.analyte_key("Hemoglobina") == "hemoglobina"
+    labs.add_result(db, END.isoformat(), "Hemoglobina glicada", 7.9, "%", 4, 5.6)
+    labs.add_result(db, END.isoformat(), "Hemoglobina", 14.5, "g/dL", 13, 17)
+    o = labs.overview(db)
+    assert len(o["itens"]) == 2 and any("Hemoglobina glicada" in a for a in o["atencao"])
+    with pytest.raises(ValueError):
+        labs.add_result(db, END.isoformat(), "Ferritina", "inf", "ng/mL")
+
+
+def test_underreported_intake_is_not_used_for_targets(cfg, db):
+    """Peso estável com 1.100 kcal registradas: o sistema desconfia do registro, não do metabolismo."""
+    prof.update(db, {**BASE, "sexo": "feminino", "altura_cm": 165, "gestante_ou_lactante": False})
+    for i in range(42):
+        d = (END - timedelta(days=41 - i)).isoformat()
+        prof.record_weight(db, d, 70 + (0.2 if i % 2 else -0.2))
+        nut.log_meal(db, d, "a", 550)
+        nut.log_meal(db, d, "b", 550)
+    t = met.tdee(db, cfg, END, 42)
+    assert t["sub_registro"] and not t["estimativa"]["origem"].startswith("adaptativa")
+    tg = nut.compute_targets(db, cfg, END)
+    assert tg["kcal"] > 1400 and any("registro alimentar incompleto" in o for o in tg["observacoes"])
+
+
+def test_readiness_uses_independent_groups_and_total_sessions_capped(cfg, db):
+    _flat(db)
+    db.upsert_daily(END.isoformat(), {"bb_max": 40, "training_readiness": 10})   # só índices compostos caem
+    assert tr.readiness(db, cfg, END)["pontos"] == 0
+    db.upsert_daily(END.isoformat(), {"hrv_last_night": 30, "resting_hr": 66})
+    assert tr.readiness(db, cfg, END)["nivel"] == "reduzido"
+    for goal in ("emagrecimento", "condicionamento", "saude"):
+        prof.update(db, {**BASE, "objetivo": goal, "dias_treino": 6, "experiencia": "avancado"})
+        p = tr.build_plan(db, cfg, END)
+        assert p["dias_forca"] + len(p["cardio"]) <= tr.SAFETY["max_sessoes_semana"]
+
+
+def test_chest_pain_gets_urgent_wording_and_zones_are_acsm_moderate(cfg, db):
+    _flat(db)
+    prof.update(db, {**BASE, "medicamentos": ["atenolol 25 mg"]})
+    db.insert("checkins", {"date": END.isoformat(), "symptoms": "dor no peito"}, upsert_on="date")
+    assert "urgência" in tr.todays_session(db, cfg, END)["texto"]
+    z = tr.hr_zones(db, cfg, END)
+    rest, mx = z["fc_repouso"], z["fc_max"]
+    z2 = z["zonas"][1]
+    assert z2["de"] == round(rest + 0.4 * (mx - rest)) and z2["ate"] == round(rest + 0.6 * (mx - rest))
+    assert "betabloqueador" in z["aviso"]
+
+
+def test_slope_ci_widens_with_autocorrelation():
+    import random
+    rng = random.Random(3)
+    xs = list(range(40))
+    e, ar = 0.0, []
+    for _ in xs:
+        e = 0.7 * e + rng.gauss(0, 1)
+        ar.append(e)
+    iid = [rng.gauss(0, 1) for _ in xs]
+    wide, narrow = stats.ols_slope(xs, ar), stats.ols_slope(xs, iid)
+    assert (wide["hi"] - wide["lo"]) > 1.5 * (narrow["hi"] - narrow["lo"])
+
+
+def test_experiment_analysis_is_by_block_and_null_is_rarely_significant(cfg, db):
+    import random
+    rng = random.Random(9)
+    false_pos = 0
+    for trial in range(40):
+        e, a, b = 0.0, [], []
+        for blk in range(14):                       # 14 blocos de 2 dias, desfecho autocorrelacionado, sem efeito
+            vals = []
+            for _ in range(2):
+                e = 0.6 * e + rng.gauss(0, 4)
+                vals.append(70 + e)
+            (a if blk % 2 == 0 else b).append(sum(vals) / 2)
+        false_pos += learning.compare_groups(a, b, "sleep_score", min_n=learning.MIN_BLOCKS)["conclusao"] == "diferenca_provavel"
+    assert false_pos <= 5                           # ≤ 12,5% em 40 simulações (nominal 5%)
+    with pytest.raises(ValueError):
+        learning.create_experiment(db, "alcool", "sleep_score", END, 28, 7)
 
 
 def test_fast_loss_reduces_deficit(cfg, db):
@@ -344,6 +485,7 @@ def test_experiment_needs_min_observations_then_detects_effect(cfg, db):
         db.upsert_daily(nxt, {"sleep_score": (82 if r["assigned"] == "A" else 70) + (date.fromisoformat(nxt).day % 3)})
     res = learning.analyze_experiment(db, eid)
     assert res["conclusao"] == "diferenca_provavel" and res["p"] < 0.05 and "indício" in res["limitacoes"]
+    assert res["n_a"] == 7 and res["n_b"] == 7                       # 7 blocos por condição, não 14 dias
 
 
 def test_no_conclusion_from_noise():

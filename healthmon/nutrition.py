@@ -26,6 +26,8 @@ from .db import Database, utcnow
 
 SAFETY = {
     "deficit_max_pct": 25.0,                # do gasto total estimado
+    "imc_minimo_para_deficit": 18.5,        # abaixo disso nenhum déficit é proposto
+    "imc_aviso_deficit": 20.0,              # abaixo disso o déficit fica limitado a 10%
     "perda_max_pct_semana": 1.0,            # do peso corporal
     "piso_kcal": {"masculino": 1500, "feminino": 1200},   # piso conservador do sistema, sem supervisão
     "superavit_max_kcal": 400,
@@ -53,9 +55,24 @@ def compute_targets(db: Database, cfg: Config, day: date | None = None) -> dict[
     goal, sex = p["objetivo"], p["sexo"]
     w, _ = prof.current_weight(db, cfg, day.isoformat())
     tdee, notes, refs = t["estimativa"]["kcal"], [], ["morton2018", "jager2017"]
-    if goal == "emagrecimento":
+    imc = prof.bmi(p, w)
+    blocked = None
+    if prof.pregnant_or_lactating(p):
+        blocked = ("Gestação ou amamentação: o sistema não calcula déficit nem superávit. As necessidades de energia "
+                   "e nutrientes nessa fase devem ser definidas pelo obstetra e pelo nutricionista.")
+    elif imc is not None and imc < SAFETY["imc_minimo_para_deficit"] and goal == "emagrecimento":
+        blocked = (f"Seu IMC estimado é {imc:.1f}, abaixo de 18,5 (baixo peso). O sistema não propõe déficit calórico "
+                   "nessa condição. Procure um médico ou nutricionista antes de qualquer tentativa de perder peso.")
+    if blocked:
+        kcal = float(tdee)
+        notes.append(blocked)
+    elif goal == "emagrecimento":
         kcal = tdee * 0.80
         refs += ["garthe2011", "helms2014"]
+        if imc is not None and imc < SAFETY["imc_aviso_deficit"]:
+            kcal = tdee * 0.90
+            notes.append(f"IMC estimado de {imc:.1f}, próximo do limite de baixo peso: déficit limitado a 10%. "
+                         "Converse com um profissional antes de continuar perdendo peso.")
         rate = t["peso"].get("pct_semana")
         if rate is not None and t["peso"].get("suficiente"):
             if rate < -SAFETY["perda_max_pct_semana"]:
@@ -96,7 +113,8 @@ def compute_targets(db: Database, cfg: Config, day: date | None = None) -> dict[
         "agua_ml": round(35 * w / 50) * 50, "refeicoes": meals,
         "por_refeicao": {"proteina_g": round(protein / meals), "alvo_g_kg": 0.4,
                          "texto": f"~{round(protein / meals)} g de proteína em cada uma das {meals} refeições"},
-        "observacoes": notes, "confianca": t["estimativa"]["confianca"], "refs": refs + ["iom2005", "who2023carb", "efsa2010", "schoenfeld2018meal"],
+        "observacoes": notes + ([t["sub_registro"]["texto"]] if t.get("sub_registro") else []),
+        "bloqueio": blocked, "imc": round(imc, 1) if imc else None, "confianca": t["estimativa"]["confianca"], "refs": refs + ["iom2005", "who2023carb", "efsa2010", "schoenfeld2018meal"],
         "limitacoes": "Metas derivadas de estimativas de gasto com incerteza de centenas de kcal; o ajuste fino vem da "
                       "evolução do seu peso em semanas. Água: referência geral de ~35 ml/kg, maior com calor e treino.",
     }
@@ -133,9 +151,9 @@ def review_targets(db: Database, cfg: Config, day: date | None = None) -> dict[s
         return {"estado": "em_dia", "calculada": new, "vigente": cur}
     step = max(-SAFETY["ajuste_max_kcal"], min(SAFETY["ajuste_max_kcal"], diff))
     if new["objetivo"] == cur.get("objetivo") and step != diff:
-        scale = (cur["kcal"] + step) / new["kcal"]
-        new = {**new, "kcal": round((cur["kcal"] + step) / 10) * 10,
-               "carboidrato_g": round(new["carboidrato_g"] * scale),
+        k2 = round((cur["kcal"] + step) / 10) * 10
+        new = {**new, "kcal": k2, "balanco_kcal": round(k2 - new["tdee"]["kcal"]),
+               "carboidrato_g": max(0, round((k2 - new["proteina_g"] * 4 - new["gordura_g"] * 9) / 4)),
                "observacoes": new["observacoes"] + [f"Ajuste limitado a {SAFETY['ajuste_max_kcal']} kcal por revisão."]}
     return {"estado": "proposta", "motivo": f"A meta calculada difere {diff:+.0f} kcal da vigente.", "calculada": new, "vigente": cur}
 

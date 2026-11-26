@@ -174,7 +174,7 @@
    "tipo": "estudo de validação",
    "populacao": "60 adultos, 7 dispositivos de pulso",
    "resultados": "Frequência cardíaca com erro baixo na maioria; nenhum dispositivo estimou gasto energético com erro abaixo de 20%.",
-   "limitacoes": "Dispositivos de 2016; não inclui a CIRQA.",
+   "limitacoes": "Dispositivos de 2016; nenhum aparelho Garmin foi testado.",
    "grau": "moderada",
    "temas": [
     "vestiveis",
@@ -335,8 +335,8 @@
    "pmid": null,
    "tipo": "meta-análise",
    "populacao": "Adultos em treino de força",
-   "resultados": "Treinar cada grupo muscular 2 vezes por semana gerou mais hipertrofia que 1 vez, com volume equiparado.",
-   "limitacoes": "Poucos estudos; não define se 3 vezes supera 2.",
+   "resultados": "Treinar cada grupo muscular 2 vezes por semana associou-se a mais hipertrofia que 1 vez.",
+   "limitacoes": "Poucos estudos, nem todos com volume equiparado; meta-análise posterior dos mesmos autores (2019), com volume equiparado, não encontrou efeito relevante da frequência.",
    "grau": "moderada",
    "temas": [
     "treino",
@@ -501,7 +501,7 @@
    "pmid": null,
    "tipo": "meta-análise e estudo laboratorial",
    "populacao": "Adultos saudáveis",
-   "resultados": "FC máxima ≈ 208 − 0,7 × idade; desvio individual de cerca de ±10 bpm.",
+   "resultados": "FC máxima ≈ 208 − 0,7 × idade; desvio-padrão de cerca de 10 bpm.",
    "limitacoes": "Estimativa populacional.",
    "grau": "moderada",
    "temas": [
@@ -987,7 +987,7 @@
    "tipo": "diretriz",
    "populacao": "Pessoas em risco de deficiência",
    "resultados": "Dosar 25(OH)D em grupos de risco; tratamento conforme o nível sérico.",
-   "limitacoes": "Diretriz de 2011, revista posteriormente; limiares debatidos.",
+   "limitacoes": "Substituída pela diretriz de 2024 da mesma sociedade, que desaconselha dosagem rotineira de 25(OH)D em adultos saudáveis com menos de 75 anos.",
    "grau": "moderada",
    "temas": [
     "suplementos",
@@ -1112,7 +1112,7 @@
    "tipo": "regulamento",
    "populacao": "Brasil",
    "resultados": "Define o que pode ser vendido como suplemento alimentar, limites por constituinte e alegações permitidas.",
-   "limitacoes": "Consultar a versão vigente e suas atualizações no portal da Anvisa.",
+   "limitacoes": "A IN 28/2018 foi alterada por normas posteriores; consultar o texto vigente no portal da Anvisa.",
    "grau": "regulatório",
    "temas": [
     "suplementos",

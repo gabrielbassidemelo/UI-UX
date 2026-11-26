@@ -294,7 +294,7 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
         d = ref_day()
         exps = learning.list_experiments(db)
         for e in exps:
-            if e["dias_registrados"] >= 2 * learning.MIN_PER_ARM:
+            if e["dias_registrados"] >= 2 * learning.MIN_BLOCKS * e["block_days"]:
                 e["analise"] = {k: v for k, v in learning.analyze_experiment(db, e["id"]).items() if k != "experimento"}
         return {"padroes": learning.patterns(db, d), "experimentos": exps, "fatores": learning.SAFE_FACTORS,
                 "desfechos": {k: METRICS[k].label for k in learning.OUTCOMES}, "decisoes": learning.decisions(db),

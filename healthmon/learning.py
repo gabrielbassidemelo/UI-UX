@@ -2,8 +2,8 @@
 acompanhamento das próprias recomendações.
 
 - Experimentos: só fatores de baixo risco de uma lista fechada; blocos A/B alternados em
-  ordem sorteada (semente guardada); análise por diferença de medianas com teste de
-  permutação; exige mínimo de observações por condição e registra confundidores.
+  ordem sorteada (semente guardada); análise por blocos, com teste de
+  permutação sobre a diferença de médias; exige mínimo de observações por condição e registra confundidores.
 - Padrões: comparação de grupos de dias (ex.: treino de manhã × à noite, com × sem cafeína
   após as 14h) sobre desfechos do dia seguinte. São associações observacionais.
 - Nada aqui altera limites de segurança nem o plano automaticamente.
@@ -20,6 +20,7 @@ from .db import Database, utcnow
 from .metrics import METRICS, display_value
 
 MIN_PER_ARM = 6
+MIN_BLOCKS = 5          # blocos válidos por condição para analisar um experimento
 SAFE_FACTORS = {
     "cafeina_corte": ("Horário do último café", "sem cafeína após as 12h", "cafeína habitual à tarde"),
     "horario_treino": ("Horário do treino", "treino pela manhã", "treino à noite"),
@@ -41,8 +42,10 @@ def create_experiment(db: Database, factor: str, outcome: str, start: date, plan
                          + ", ".join(SAFE_FACTORS))
     if outcome not in OUTCOMES:
         raise ValueError(f"Desfecho inválido; use um de {OUTCOMES}")
-    if not (14 <= planned_days <= 56) or not (1 <= block_days <= 7):
-        raise ValueError("Duração de 14 a 56 dias; blocos de 1 a 7 dias")
+    if not (20 <= planned_days <= 56) or not (1 <= block_days <= 3):
+        raise ValueError("Duração de 20 a 56 dias; blocos de 1 a 3 dias")
+    if planned_days / block_days / 2 < MIN_BLOCKS:
+        raise ValueError(f"Com esses blocos não haveria {MIN_BLOCKS} blocos por condição; aumente a duração.")
     if db.q1("SELECT 1 FROM experiments WHERE status='ativo'"):
         raise ValueError("Já existe um experimento ativo; conduza um por vez para não misturar efeitos.")
     seed = seed if seed is not None else random.SystemRandom().randrange(1, 10**6)
@@ -73,20 +76,22 @@ def record_day(db: Database, eid: int, day: str, followed: bool, confounders: st
 
 
 def permutation_p(a: list[float], b: list[float], n_iter: int = 5000, seed: int = 1) -> float:
-    obs = abs(st.median(a) - st.median(b))
+    obs = abs(st.mean(a) - st.mean(b))          # estatística: diferença de médias
     pool, na, rng, hits = a + b, len(a), random.Random(seed), 0
     for _ in range(n_iter):
         rng.shuffle(pool)
-        if abs(st.median(pool[:na]) - st.median(pool[na:])) >= obs - 1e-12:
+        if abs(st.mean(pool[:na]) - st.mean(pool[na:])) >= obs - 1e-12:
             hits += 1
     return (hits + 1) / (n_iter + 1)
 
 
-def compare_groups(a: list[float], b: list[float], key: str) -> dict[str, Any]:
+def compare_groups(a: list[float], b: list[float], key: str, alpha: float = 0.05, min_n: int = MIN_PER_ARM,
+                   unit_label: str = "observações") -> dict[str, Any]:
+    """alpha deve ser dividido pelo número de comparações feitas em conjunto (Bonferroni)."""
     out: dict[str, Any] = {"n_a": len(a), "n_b": len(b)}
-    if len(a) < MIN_PER_ARM or len(b) < MIN_PER_ARM:
+    if len(a) < min_n or len(b) < min_n:
         out.update(conclusao="dados_insuficientes",
-                   texto=f"São necessárias pelo menos {MIN_PER_ARM} observações válidas em cada condição "
+                   texto=f"São necessários pelo menos {min_n} {unit_label} válidos em cada condição "
                          f"(há {len(a)} e {len(b)}). Nenhuma conclusão ainda.")
         return out
     diff = st.median(a) - st.median(b)
@@ -95,12 +100,8 @@ def compare_groups(a: list[float], b: list[float], key: str) -> dict[str, Any]:
     eff = diff / sd
     out.update(mediana_a=round(st.median(a), 2), mediana_b=round(st.median(b), 2), diferenca=round(diff, 2),
                efeito_padronizado=round(eff, 2), p=round(p, 4), unidade=METRICS[key].unit)
-    if p < 0.05 and abs(eff) >= 0.5:
-        out["conclusao"] = "diferenca_provavel"
-    elif p < 0.2 and abs(eff) >= 0.3:
-        out["conclusao"] = "sinal_fraco"
-    else:
-        out["conclusao"] = "sem_diferenca_detectavel"
+    out["alfa"] = alpha
+    out["conclusao"] = "diferenca_provavel" if p < alpha and abs(eff) >= 0.5 else "sem_diferenca_detectavel"
     return out
 
 
@@ -111,9 +112,15 @@ def analyze_experiment(db: Database, eid: int) -> dict[str, Any]:
     days = db.q("SELECT * FROM experiment_days WHERE experiment_id=? ORDER BY date", (eid,))
     end = date.fromisoformat(days[-1]["date"]) + timedelta(days=e["lag_days"])
     store = an.load_store(db, end, len(days) + 10)
-    arms: dict[str, list[float]] = {"A": [], "B": []}
+    # A unidade de análise é o BLOCO (dias seguidos na mesma condição se parecem; tratá-los como
+    # independentes infla falsos positivos). Cada bloco contribui com a média dos seus dias válidos.
+    blocks: list[tuple[str, list[float]]] = []
     excluded = conf = 0
-    for d_ in days:
+    prev = None
+    for i, d_ in enumerate(days):
+        if d_["assigned"] != prev or i % e["block_days"] == 0:
+            blocks.append((d_["assigned"], []))
+            prev = d_["assigned"]
         if d_["followed"] != 1:
             excluded += 1
             continue
@@ -121,8 +128,9 @@ def analyze_experiment(db: Database, eid: int) -> dict[str, Any]:
             conf += 1
         v = store.value(e["outcome"], date.fromisoformat(d_["date"]) + timedelta(days=e["lag_days"]))
         if v is not None:
-            arms[d_["assigned"]].append(display_value(e["outcome"], v))
-    res = compare_groups(arms["A"], arms["B"], e["outcome"])
+            blocks[-1][1].append(display_value(e["outcome"], v))
+    arms = {c: [st.mean(v) for cond, v in blocks if cond == c and v] for c in ("A", "B")}
+    res = compare_groups(arms["A"], arms["B"], e["outcome"], min_n=MIN_BLOCKS, unit_label="blocos")
     m = METRICS[e["outcome"]]
     text = res.get("texto")
     if not text:
@@ -133,8 +141,6 @@ def analyze_experiment(db: Database, eid: int) -> dict[str, Any]:
         if res["conclusao"] == "diferenca_provavel":
             text = (f"Nos seus dados, {m.label} foi {'melhor' if better else 'diferente'} com \"{label.get(better, label['A'])}\" "
                     f"(diferença de {abs(res['diferenca']):g} {m.unit}; p = {res['p']:.3f}).")
-        elif res["conclusao"] == "sinal_fraco":
-            text = "Há um sinal fraco de diferença, insuficiente para concluir. Vale repetir ou prolongar o experimento."
         else:
             text = "Não foi detectada diferença entre as condições neste período."
     return {"experimento": e, **res, "texto": text, "dias_excluidos_sem_adesao": excluded, "dias_com_confundidores": conf,
@@ -215,10 +221,10 @@ def patterns(db: Database, end: date, days: int = 90) -> list[dict[str, Any]]:
                         "texto": "Faltam registros (check-ins ou treinos) para comparar os dois grupos."})
             continue
         (na, a), (nb, b) = sorted(g.items())
-        r = compare_groups(a, b, outcome)
+        r = compare_groups(a, b, outcome, alpha=0.05 / len(specs))     # Bonferroni: 4 comparações
         r.update(titulo=title, grupo_a=na, grupo_b=nb, desfecho=METRICS[outcome].label)
         if "texto" not in r:
-            verb = {"diferenca_provavel": "Diferença provável", "sinal_fraco": "Sinal fraco de diferença",
+            verb = {"diferenca_provavel": "Diferença provável",
                     "sem_diferenca_detectavel": "Sem diferença detectável"}[r["conclusao"]]
             r["texto"] = (f"{verb}: {METRICS[outcome].label} mediana {r['mediana_a']:g} em \"{na}\" (n={r['n_a']}) e "
                           f"{r['mediana_b']:g} em \"{nb}\" (n={r['n_b']}). Associação observacional, não prova causa.")
@@ -252,7 +258,7 @@ def recommendation_outcomes(db: Database, end: date, days: int = 60) -> dict[str
         v = store.value("hrv_last_night", date.fromisoformat(r["date"]) + timedelta(days=1))
         if v is not None:
             g["seguiu" if r["followed"] else "não seguiu"].append(v)
-    res = compare_groups(g["seguiu"], g["não seguiu"], "hrv_last_night")
+    res = compare_groups(g["seguiu"], g["não seguiu"], "hrv_last_night", min_n=10)
     res["avaliadas"] = len(rows)
     if "texto" not in res:
         res["texto"] = (f"HRV mediana na noite seguinte: {res['mediana_a']:g} ms quando seguiu (n={res['n_a']}) e "

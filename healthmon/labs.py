@@ -47,20 +47,28 @@ def _n(s: str) -> str:
 
 def analyte_key(name: str) -> str:
     n = _n(name)
+    best = None                                   # o alias mais longo vence: "hemoglobina glicada" ≠ "hemoglobina"
     for key, names in ALIASES.items():
-        if any(re.search(rf"(^|[^a-z0-9]){re.escape(a)}($|[^a-z0-9])", n) for a in names):
-            return key
+        for a in names:
+            if re.search(rf"(^|[^a-z0-9]){re.escape(a)}($|[^a-z0-9])", n) and (best is None or len(a) > len(best[1])):
+                best = (key, a)
+    if best:
+        return best[0]
     return re.sub(r"[^a-z0-9]+", "_", n).strip("_")[:40]
 
 
 def _num(v: Any) -> float | None:
     if v is None or str(v).strip() == "":
         return None
+    import math
     try:
-        return float(str(v).strip().replace(".", "").replace(",", ".") if re.match(r"^\d{1,3}(\.\d{3})+(,\d+)?$", str(v).strip())
-                     else str(v).strip().replace(",", "."))
+        f = float(str(v).strip().replace(".", "").replace(",", ".") if re.match(r"^\d{1,3}(\.\d{3})+(,\d+)?$", str(v).strip())
+                  else str(v).strip().replace(",", "."))
     except ValueError:
         return None
+    if not math.isfinite(f) or abs(f) > 1e9:
+        raise ValueError("Valor numérico fora do intervalo aceito")
+    return f
 
 
 def add_result(db: Database, day: str, analyte: str, value: Any, unit: str = "", ref_low: Any = None,
@@ -96,8 +104,9 @@ def store_original(cfg: Config, filename: str, content: bytes) -> str:
         raise ValueError("Formato não aceito (use PDF, imagem ou CSV)")
     d = cfg.home / "exames"
     ensure_private_dir(d)
+    import secrets as _secrets
     safe = re.sub(r"[^A-Za-z0-9_.-]", "_", Path(filename).name)[:80]
-    name = f"{date.today().isoformat()}_{safe}"
+    name = f"{date.today().isoformat()}_{_secrets.token_hex(3)}_{safe}"   # sufixo aleatório: nunca sobrescreve
     write_private_file(d / name, content)
     return name
 
