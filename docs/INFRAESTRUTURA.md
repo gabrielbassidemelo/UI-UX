@@ -1,9 +1,8 @@
 # Infraestrutura autônoma e gratuita: avaliação e escolha
 
-Avaliação feita em 26/11/2026. Os sites dos provedores não puderam ser abertos do ambiente de
-desenvolvimento; os limites abaixo vêm de buscas na web e estão marcados quando a fonte é de terceiros.
-**Confira os números na página oficial de cada provedor no momento da contratação.** Nada foi
-contratado e nenhum dado real foi enviado a lugar algum.
+Avaliação feita em 26/11/2026 e revista na fase 3. **Os limites da Oracle abaixo foram conferidos na
+documentação oficial** (docs.oracle.com, "Always Free Resources", lida em 26/11/2026). Os dados do Supabase
+continuam vindo de fontes de terceiros. Nada foi contratado e nenhum dado real foi enviado a lugar algum.
 
 ## Requisitos
 Funcionar sem o seu computador ligado e sem uma sessão do Claude Code aberta; custo recorrente de R$ 0;
@@ -25,24 +24,22 @@ dashboard, sem reescrever nada.
 
 | Ponto | Situação |
 |---|---|
-| Recursos gratuitos | Até 2 VMs AMD (1/8 OCPU, 1 GB) e instâncias Arm Ampere A1. Guias de 2026 relatam que o limite Arm caiu de 4 OCPU/24 GB para **2 OCPU/12 GB** (fonte de terceiros; confirmar) |
-| O sistema cabe? | Sim, na menor VM AMD de 1 GB (usa ~100 MB), com 2 GB de swap |
-| Compatibilidade Arm | Todas as dependências têm pacotes para Arm64; não testado em Arm aqui |
-| Região | Escolha **Brazil East (São Paulo)** ou Brazil Southeast (Vinhedo) para manter os dados no Brasil. Disponibilidade de capacidade Arm gratuita na região: **não verificada**; a VM AMD costuma estar disponível |
+| Recursos gratuitos (documentação oficial) | Até **2 VMs AMD** `VM.Standard.E2.1.Micro` (1/8 OCPU, 1 GB) e, em Arm, **1.500 horas-OCPU e 9.000 GB-hora por mês** de `VM.Standard.A1.Flex`, o que equivale a 2 OCPU e 12 GB; 200 GB de volume de blocos no total (disco de inicialização mínimo de 47 GB); **20 GB de Object Storage e 50.000 requisições por mês**; 10 TB de tráfego de saída |
+| Onde valem | Só na **região de origem** da conta, escolhida no cadastro e imutável |
+| Gratuidade permanente? | Sim para os itens com o rótulo *Always Free-eligible*. O crédito de avaliação dos primeiros 30 dias **não** é permanente e não é usado aqui |
+| O sistema cabe? | Sim, na VM AMD de 1 GB (usa ~100 MB), com 2 GB de swap. Backups: ~1 MB cada com dados sintéticos; 14 diários + 8 semanais ficam muito abaixo de 20 GB. Requisições ao bucket: cerca de 5 por dia, contra 50.000 por mês |
+| Compatibilidade Arm (verificado na fase 3) | Das 70 dependências instaladas, 69 têm pacote pronto para `aarch64` no Python 3.12 e a restante (`http_ece`) é Python puro; `numpy` e `scipy` também têm. O script de instalação detecta a arquitetura. **Não executado em uma máquina Arm** |
+| Disponibilidade na região | **Não verificável daqui** (exige o console da sua conta). A documentação avisa que o erro *out of host capacity* indica falta temporária de máquinas gratuitas e orienta tentar outro domínio de disponibilidade ou esperar. A VM AMD só pode ser criada em um domínio |
 | Cartão de crédito | Exigido no cadastro para verificação de identidade |
-| **Risco: recuperação de instâncias ociosas** | A Oracle pode recuperar VMs Always Free ociosas (CPU, rede e, em A1, memória abaixo de 20% no percentil 95 por 7 dias). **Este sistema é ocioso por natureza e se enquadra.** |
-| Criptografia em repouso | Os volumes da Oracle são criptografados com chaves gerenciadas por ela; os backups do sistema são criptografados com a sua frase-senha |
+| **Risco: recuperação de instâncias ociosas** (documentação oficial) | A Oracle pode recuperar VMs Always Free se, por 7 dias, o percentil 95 de CPU ficar abaixo de 20%, a rede abaixo de 20% e, em A1, a memória abaixo de 20%. **Este sistema é ocioso por natureza e se enquadra.** |
+| Criptografia em repouso | Volumes cifrados pela Oracle com chaves dela; backups cifrados com chave que só você tem |
 
-**Sobre o risco de recuperação por ociosidade**, há duas saídas honestas, e a decisão é sua:
-1. **Converter a conta para Pay As You Go.** Segundo os guias, isso elimina a recuperação por ociosidade e os
-   recursos Always Free continuam gratuitos. Passa a existir a *possibilidade* de cobrança se algum recurso
-   pago for criado. Mitigação: não criar nada além da VM e configurar um alerta de orçamento de R$ 1.
-   **Não fiz nem recomendo fazer sem a sua autorização expressa.**
-2. **Manter Always Free puro e aceitar o risco.** Se a VM for recuperada, você recria a VM e restaura o
-   último backup (procedimento em `IMPLANTACAO.md`, cerca de 20 minutos). Para isso, copie os backups
-   criptografados para fora da VM (ver `IMPLANTACAO.md`).
-
-Não recomendo gerar carga artificial para burlar a regra de ociosidade.
+**Decisão registrada (fase 3):** manter a conta Always Free pura, **sem** conversão para Pay As You Go e sem
+gerar carga artificial para burlar a regra de ociosidade. O risco de a VM ser recuperada é aceito; a perda
+de histórico não é. Por isso o backup externo diário, a cópia independente no iPhone e o roteiro de
+recuperação em VM nova (`RECUPERACAO_DESASTRES.md`) são obrigatórios antes de qualquer dado real.
+Recriar a VM e restaurar leva cerca de 30 minutos; a perda máxima é de 24 horas de dados, que a própria
+Garmin ainda guarda e o comando `historico` reimporta.
 
 ## Alternativa B — Supabase + Cloudflare (não escolhida)
 | Ponto | Situação |
@@ -81,12 +78,14 @@ pública e é a mais simples de migrar.
 | GitHub Actions | Roda a suíte de testes a cada alteração | Gratuito dentro da franquia | Não. Não é usado como servidor de monitoramento |
 
 ## O que depende de você
-1. Criar a conta Oracle Cloud (cartão para verificação) e decidir entre as duas saídas do risco de ociosidade.
+1. Criar a conta Oracle Cloud (cartão para verificação), sem converter para Pay As You Go.
 2. Criar a conta Tailscale e instalar o app no iPhone.
-3. Gerar a chave pessoal da Garmin e digitá-la **no terminal do servidor**, nunca no chat.
-4. Autorizar o envio dos seus dados reais para a VM. Sem essa autorização, nada é implantado.
+3. Criar o bucket e a URL de acesso para os backups e guardar a chave de recuperação.
+4. Gerar a chave pessoal da Garmin e digitá-la **no terminal do servidor**, nunca no chat.
+5. Autorizar o envio dos seus dados reais para a VM. Sem essa autorização, nada é implantado.
 
 ## Fontes
+- [Oracle — Always Free Resources (documentação oficial)](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)
 - [Guia Oracle Always Free 2026 (cloudpicked)](https://cloudpicked.com/oracle-cloud-free-tier-guide-en.html)
 - [Análise Oracle Always Free 2026 (space-node)](https://space-node.net/blog/oracle-vps-free-tier-review-2026)
 - [Oracle Free Tier como VPS: regra de ociosidade (bestusavps)](https://bestusavps.com/reviews/oracle-cloud/)

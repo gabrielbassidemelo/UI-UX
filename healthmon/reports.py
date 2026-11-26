@@ -187,8 +187,17 @@ def daily(cfg: Config, db: Database, day: date, sync_failed: bool = False) -> Re
         doc.h("Pontos positivos")
         doc.ul(pos)
     doc.h("Sugestões para hoje")
-    tips = ins.day_suggestions(snap)
+    try:
+        from . import training
+        ready = training.readiness(db, cfg, day)
+    except Exception:  # noqa: BLE001 — sem perfil/plano o relatório segue descritivo
+        ready = None
+    tips = ins.day_suggestions(snap, ready)
     doc.ul(tips)
+    from . import calibration
+    stg = calibration.stage(db, day)
+    doc.p(f"Estágio de calibração: {stg['rotulo']} — {stg['dias_validos']} dias com dados válidos."
+          + (" Recomendações personalizadas ainda suspensas; por enquanto o relatório é descritivo." if not stg["permite"]["progressao_de_carga"] else ""))
 
     try:
         from . import planner

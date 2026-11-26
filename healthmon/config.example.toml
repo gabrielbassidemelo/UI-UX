@@ -94,6 +94,9 @@ diretorio = ""          # vazio = $HEALTHMON_HOME/backups
 manter_diarios = 14
 manter_semanais = 8
 hora = "03:30"
+# Cópia externa (Oracle Object Storage): a URL de acesso (PAR) fica em secrets.env como OCI_PAR_URL, nunca aqui.
+# O arquivo já sai cifrado da VM; a chave de recuperação fica só com você (healthmon chaves-recuperacao).
+offsite_prefixo = ""
 
 [retencao]
 # JSON brutos da Garmin mais antigos que isto são apagados (os indicadores diários derivados ficam).

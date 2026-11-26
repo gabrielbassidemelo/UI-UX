@@ -55,8 +55,15 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("executar", help="serviço completo: agendador + dashboard (uso em produção)")
     bk = sub.add_parser("backup", help="cria backup criptografado")
     bk.add_argument("--destino")
-    rs = sub.add_parser("restaurar", help="restaura um backup .hmbk")
-    rs.add_argument("arquivo")
+    rs = sub.add_parser("restaurar", help="restaura um backup .hmbk (sem arquivo: baixa o mais recente da cópia externa)")
+    rs.add_argument("arquivo", nargs="?")
+    ck = sub.add_parser("chaves-recuperacao", help="gera o par de chaves do backup; a chave de recuperação aparece UMA vez")
+    ck.add_argument("--forcar", action="store_true", help="substitui a chave pública existente (backups antigos seguem exigindo a chave antiga)")
+    be = sub.add_parser("backup-externo", help="envia o último backup para a cópia externa, ou mostra o estado")
+    be.add_argument("--status", action="store_true")
+    vb = sub.add_parser("verificar-backup", help="confere a integridade de um backup (o mais recente, se omitido)")
+    vb.add_argument("arquivo", nargs="?")
+    vb.add_argument("--com-chave", action="store_true", help="pede a chave de recuperação e decifra para conferir o banco")
     dm = sub.add_parser("demo", help="popula um banco com dados SIMULADOS (use HEALTHMON_HOME separado)")
     dm.add_argument("--dias", type=int, default=120)
     ia = sub.add_parser("ia-nuvem", help="consentimento para IA em nuvem")
@@ -217,8 +224,50 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "restaurar":
-        from .backup import restore_backup
-        print(f"Banco restaurado em {restore_backup(cfg, Path(args.arquivo))} (cópia anterior preservada).")
+        import tempfile
+        from . import backup as bkp, offsite
+        if args.arquivo:
+            path = Path(args.arquivo)
+        else:
+            path = offsite.download_latest(cfg, Path(tempfile.mkdtemp(prefix="hm-restaurar-")))
+            print(f"Baixado da cópia externa: {path.name}")
+        head = bkp.read_header(path)
+        # A chave de recuperação só é lida do teclado: nunca por argumento, variável de ambiente ou arquivo.
+        key = getpass.getpass("Chave de recuperação (HMRK-...): ").strip() if head else None
+        print(f"Banco restaurado em {bkp.restore_backup(cfg, path, key)} (cópia anterior preservada).")
+        return 0
+
+    if args.cmd == "chaves-recuperacao":
+        from . import backup as bkp
+        if bkp.public_key_path(cfg).exists() and not args.forcar:
+            print("Já existe uma chave pública de backup. Use --forcar só se perdeu a chave de recuperação;\n"
+                  "backups antigos continuarão exigindo a chave antiga.")
+            return 1
+        priv, pub = bkp.generate_recovery_keypair()
+        bkp.save_public_key(cfg, pub)
+        print("CHAVE DE RECUPERAÇÃO (aparece só agora; não fica gravada no servidor):\n")
+        print(f"    {priv}\n")
+        print("Guarde no gerenciador de senhas do iPhone (Senhas/iCloud) ou em papel. Sem ela NENHUM backup novo pode ser\n"
+              "aberto, nem por você, nem pelo servidor. Não a envie por conversa, e-mail ou GitHub.")
+        input("Depois de guardar, pressione Enter para limpar a tela. ")
+        print("\033[2J\033[3J\033[H", end="")
+        print("Chave pública gravada. Os próximos backups usam o formato HMBK2.")
+        return 0
+
+    if args.cmd == "backup-externo":
+        from . import offsite
+        r = offsite.status(cfg) if args.status else offsite.sync_latest(cfg)
+        print(json.dumps(r, ensure_ascii=False, indent=1))
+        return 0 if args.status or r.get("status") in ("ok", "em_dia") else 1
+
+    if args.cmd == "verificar-backup":
+        from . import backup as bkp
+        path = Path(args.arquivo) if args.arquivo else bkp.latest_backup(cfg)
+        if path is None:
+            print("Nenhum backup encontrado.")
+            return 1
+        key = getpass.getpass("Chave de recuperação (HMRK-...): ").strip() if args.com_chave else None
+        print(json.dumps(bkp.verify_backup(cfg, path, key), ensure_ascii=False, indent=1, default=str))
         return 0
 
     if args.cmd == "demo":

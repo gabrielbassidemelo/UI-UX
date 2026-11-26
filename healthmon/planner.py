@@ -150,7 +150,9 @@ def daily_plan(db: Database, cfg: Config, day: date | None = None, record: bool 
     if tgt:
         items.append(_item("Qual é minha meta nutricional?",
                            f"{tgt['kcal']} kcal · proteína {tgt['proteina_g']} g · carboidrato {tgt['carboidrato_g']} g · "
-                           f"gordura {tgt['gordura_g']} g · fibra {tgt['fibra_g']} g · água ~{tgt['agua_ml']} ml",
+                           f"gordura {tgt['gordura_g']} g"
+                           + (f" · fibra {tgt['fibra_g']} g" if tgt.get("fibra_g") else "")
+                           + (f" · água ~{tgt['agua_ml']} ml" if tgt.get("agua_ml") else ""),
                            f"Objetivo '{prof.GOALS.get(tgt['objetivo'], tgt['objetivo'])}' sobre um gasto estimado de "
                            f"{tgt['tdee']['kcal']} kcal ({tgt['tdee']['origem']})."
                            + (" Há uma proposta de ajuste aguardando sua confirmação." if rev["estado"] == "proposta" else ""),
@@ -158,11 +160,13 @@ def daily_plan(db: Database, cfg: Config, day: date | None = None, record: bool 
                            tgt["refs"][:4], tgt["confianca"], tgt["limitacoes"], cfg))
     else:
         miss = rev["calculada"].get("faltam") if rev["estado"] == "indisponivel" else None
+        block = rev["calculada"].get("bloqueio") if rev["estado"] == "indisponivel" else None
         items.append(_item("Qual é minha meta nutricional?",
-                           "Ainda não há meta confirmada." + (f" Complete o perfil: {', '.join(miss)}." if miss else " Revise e confirme a proposta em Nutrição."),
+                           (str(block) if block else "Ainda não há meta confirmada."
+                            + (f" Complete o perfil: {', '.join(miss)}." if miss else " Revise e confirme a proposta em Nutrição.")),
                            "Metas só entram em vigor depois da sua confirmação.", [], [], "baixa", "", cfg))
     # 6. disposição
-    tips = ins.day_suggestions(snap)
+    tips = ins.day_suggestions(snap, ready)
     items.append(_item("Como posso melhorar minha disposição?", tips[0] if tips else "Mantenha a rotina.",
                        " ".join(tips[1:3]), [ins._desc(av[k]) for k in ("sleep_seconds", "stress_avg", "bb_max") if k in av],
                        ["watson2015", "bull2020"], "média", "Sugestões gerais de rotina, não tratamento.", cfg))
@@ -195,7 +199,13 @@ def daily_plan(db: Database, cfg: Config, day: date | None = None, record: bool 
                        [f"{wt['n']} pesagem(ns) em {wt['dias']} dias"], ["hall2011"], "média" if wt.get("suficiente") else "baixa",
                        "Peso oscila 1–2 kg por água, sal, glicogênio e conteúdo intestinal; olhe a tendência de semanas.", cfg))
 
+    from . import calibration, safety
+    stage = calibration.stage(db, day)
+    scr = safety.screen(db, cfg, day)
+    susp = [k for k, v in stage["permite"].items() if not v]
     plan = {"dia": day.isoformat(), "qualidade_dados": dq, "prontidao": ready, "sessao": session, "itens": items,
+            "calibracao": stage, "suspenso_por_calibracao": susp,
+            "seguranca": {"faltam": scr["faltam"], "bloqueios": scr["bloqueios"], "avisos": scr["avisos"]},
             "experimento": learning.today_assignment(db, day),
             "proximas_acoes": _next_actions(db, cfg, day, session, rev, ready)}
     if record:

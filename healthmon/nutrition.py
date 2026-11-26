@@ -369,7 +369,8 @@ def day_summary(db: Database, cfg: Config, day: date) -> dict[str, Any]:
     if target:
         out["restante"] = {"kcal": round(target["kcal"] - tot["kcal"]), "proteina_g": round(target["proteina_g"] - tot["protein_g"]),
                            "carboidrato_g": round(target["carboidrato_g"] - tot["carb_g"]),
-                           "gordura_g": round(target["gordura_g"] - tot["fat_g"]), "fibra_g": round(target["fibra_g"] - tot["fiber_g"])}
+                           "gordura_g": round(target["gordura_g"] - tot["fat_g"]),
+                           "fibra_g": round(target["fibra_g"] - tot["fiber_g"]) if target.get("fibra_g") is not None else None}
     return out
 
 

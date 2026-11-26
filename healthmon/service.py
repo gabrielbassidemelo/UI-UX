@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from . import alerts, notify, reports
 from .backup import create_backup
@@ -141,12 +141,60 @@ class Service:
     def job_sync(self) -> str:
         return self.sync()["status"]
 
+    def _backup_alert(self, kind: str, title: str, msg: str, evidence: dict) -> None:
+        last = self.db.last_alert(kind)
+        if last and datetime.now(timezone.utc) - datetime.fromisoformat(last["created_at"]) < timedelta(hours=20):
+            return
+        self.db.add_alert(today_local(self.cfg).isoformat(), kind, "atencao", title, msg, evidence)
+
     @tracked("backup")
     def job_backup(self) -> str:
+        """Backup diário cifrado (RPO de 24 h): cópia consistente, verificação e envio para fora da VM.
+        Qualquer falha vira alerta; nenhuma falha é silenciosa."""
+        from . import offsite
         from .backup import verify_backup
-        p = create_backup(self.cfg)
-        verify_backup(self.cfg, p)          # teste de restauração: decifra e checa a integridade
-        return f"{p.name} verificado"
+        try:
+            p = create_backup(self.cfg)
+            verify_backup(self.cfg, p)      # estrutura e checksum (HMBK2) ou restauração de teste (HMBK1)
+        except Exception as e:  # noqa: BLE001
+            self._backup_alert("falha_backup", "Backup diário falhou",
+                               "O backup local de hoje não foi criado ou não passou na verificação. Seus dados continuam "
+                               "no servidor, mas sem cópia nova. Veja Configurações › Backup.", {"erro": type(e).__name__})
+            notify.dispatch_alerts(self.cfg, self.db)
+            raise
+        out = f"{p.name} verificado"
+        if offsite.configured(self.cfg):
+            r = offsite.sync_latest(self.cfg)
+            out += f"; externo: {r.get('status')}"
+            self._offsite_check()
+        else:
+            self._backup_alert("backup_externo_ausente", "Backup externo não configurado",
+                               "Os backups estão só no próprio servidor. Se a máquina for perdida, o histórico se perde. "
+                               "Configure o envio ao Object Storage (docs/RECUPERACAO_DESASTRES.md).", {})
+        notify.dispatch_alerts(self.cfg, self.db)
+        return out
+
+    def _offsite_check(self) -> dict:
+        from . import offsite
+        st = offsite.status(self.cfg)
+        if st.get("alerta"):
+            self._backup_alert("falha_backup_externo", "Backup externo com falha ou atrasado",
+                               f"Falhas consecutivas: {st.get('falhas_consecutivas')}; último envio com sucesso: "
+                               f"{st.get('ultimo_envio_ok') or 'nunca'}. O objetivo é nunca ficar mais de 24 h sem cópia externa.",
+                               {k: st.get(k) for k in ("falhas_consecutivas", "idade_horas", "atrasado")})
+        return st
+
+    @tracked("backup_externo")
+    def job_offsite_retry(self) -> str:
+        """Reenvia o último backup se o envio anterior falhou ou está pendente."""
+        from . import offsite
+        if not offsite.configured(self.cfg):
+            return "desativado"
+        st = offsite.status(self.cfg)
+        r = offsite.sync_latest(self.cfg) if (st.get("pendente") or st.get("ultimo_erro") or st.get("atrasado")) else {"status": "em_dia"}
+        self._offsite_check()
+        notify.dispatch_alerts(self.cfg, self.db)
+        return str(r.get("status"))
 
     @tracked("retencao")
     def job_retention(self) -> str:
@@ -212,6 +260,8 @@ class Service:
         h, m = hm(g("backup", "hora", "03:30"))
         scheduler.add_job(self.job_backup, "cron", hour=h, minute=m, timezone=tz, id="backup",
                           misfire_grace_time=6 * 3600, coalesce=True)
+        scheduler.add_job(self.job_offsite_retry, "cron", hour="9,15,21", minute=20, timezone=tz, id="offsite-retry",
+                          misfire_grace_time=3 * 3600, coalesce=True)
         scheduler.add_job(self.job_retention, "cron", day_of_week="mon", hour=4, minute=10, timezone=tz, id="retention",
                           misfire_grace_time=24 * 3600, coalesce=True)
         scheduler.add_job(lambda: notify.dispatch_alerts(self.cfg, self.db), "cron", minute="*/30",

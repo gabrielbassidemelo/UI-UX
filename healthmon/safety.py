@@ -53,7 +53,7 @@ SYMPTOM_TEXT = {
     "falta_de_ar": ("falta de ar", "falta d ar", "dispneia", "sem folego", "sufoc"),
     "palpitacao": ("palpita", "coracao disparad", "coracao acelerad", "taquicardia", "arritmia"),
     "febre": ("febre", "febril", "calafrio", "gripe", "gripad", "infeccao", "covid"),
-    "dor_articular": ("dor aguda", "inchaco", "inchad", "torci", "entorse", "estalo no", "lesao", "lesion", "distens"),
+    "dor_articular": ("dor forte", "dor intensa", "dor no joelho", "dor no ombro", "dor na lombar", "dor nas costas", "dor no quadril", "dor no punho", "dor no tornozelo", "dor na coluna", "dor aguda", "inchaco", "inchad", "torci", "entorse", "estalo no", "lesao", "lesion", "distens"),
 }
 NEGATION = re.compile(r"\b(sem|nao|nenhum|nenhuma|zero)\s+(tenho\s+|tive\s+|senti\s+|sinto\s+)?$")
 UNDER18 = "Este sistema é destinado a adultos (18 anos ou mais). Crianças e adolescentes precisam de acompanhamento profissional."

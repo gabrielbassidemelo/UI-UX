@@ -1,7 +1,60 @@
 # Relatório de segurança, privacidade e LGPD
 
-> As seções 1 a 4 descrevem a fase 2 (implantação em VM). O texto original da fase 1 segue ao final e
-> continua válido, exceto onde fala em tokens e login da integração não oficial.
+> A seção 0 é a apresentação exigida **antes de usar dados reais** (fase 3). As seções 1 a 4 descrevem a fase 2
+> e continuam válidas, exceto onde a seção 0 as atualiza (backups). O texto da fase 1 segue ao final.
+
+## 0. Antes de usar dados reais (fase 3)
+Leia esta seção antes de digitar `AUTORIZO` no script de configuração. Até esse ponto nenhum dado real de
+saúde existe em lugar algum além da Garmin.
+
+### Onde os dados ficam
+| Dado | Onde | Protegido como |
+|---|---|---|
+| Banco com tudo (indicadores, perfil, triagem de saúde, refeições, exames, check-ins) | Arquivo `data/healthmon.db` no disco da sua VM na Oracle, na região da conta (São Paulo ou Vinhedo) | Disco cifrado pela Oracle com chaves dela; pasta 700; contêiner sem root; nenhuma porta pública |
+| Backups diários | `data/backups/` na VM e cópia no seu bucket do Oracle Object Storage | **Cifrados antes de sair da VM** (formato HMBK2). Só abrem com a chave de recuperação, que **não está no servidor nem no bucket** |
+| Cópia independente | App Arquivos/iCloud do iPhone, quando você baixa pelo painel | O mesmo arquivo cifrado |
+| Chave de recuperação `HMRK-…` | Só com você (app Senhas) | Aparece uma vez no terminal |
+| Chave da Garmin, URL do bucket, senha do painel (hash) | `data/secrets.env` e `data/dashboard_auth.json` na VM (600) | Não entram em backup, log, relatório ou repositório |
+
+### Quem tem acesso técnico
+| Provedor | O que consegue ver |
+|---|---|
+| **Garmin** | Tudo o que a pulseira envia (é a origem). O sistema só lê |
+| **Oracle** | Opera a VM e o bucket. Com acesso de administrador à infraestrutura, o disco da VM é legível (cifragem com chaves da Oracle). No bucket só há arquivo cifrado com chave que a Oracle não tem |
+| **Tailscale** | Não vê conteúdo (cifrado de ponta a ponta). Vê metadados: seus aparelhos, endereços e horários. O nome `.ts.net` do painel aparece em registros públicos de certificados |
+| **Apple** | Entrega as notificações; vê que houve uma notificação e quando. O conteúdo é cifrado e genérico |
+| **GitHub** | Só código. Nenhum dado de saúde, nenhum backup, nenhum segredo |
+| **Anthropic / Claude** | Nada. IA externa desabilitada; nenhum dado real foi usado no desenvolvimento |
+
+### O que sai da VM
+1. Pedidos de leitura à API da Garmin (com a sua chave).
+2. O backup do dia, já cifrado, para o seu bucket.
+3. Notificações curtas para o iPhone ("há um novo relatório"), sem valores de saúde por padrão.
+4. Na instalação e em atualizações: download de pacotes e da tabela de alimentos (sem dados pessoais).
+
+Nada mais. Não há telemetria. O teste automatizado de privacidade confirma que os relatórios de validação
+da Garmin e o estado do backup não carregam valores de saúde, chaves ou URLs.
+
+### O que chega ao iPhone
+Páginas do painel, pela rede privada da Tailscale com HTTPS, somente depois do login. O painel não é
+publicado na internet (o script confere que o Tailscale Funnel está desligado). O navegador guarda em cache
+só os arquivos da interface, não as respostas com dados.
+
+### Seus controles
+| Você quer | Como |
+|---|---|
+| Exportar tudo | `healthmon exportar /data/exportacao.json` |
+| Apagar tudo no servidor | `healthmon apagar-dados --confirmar` |
+| Revogar o acesso à Garmin | connect.garmin.com/app/settings/personalApiToken → revogar a chave. O sistema para de coletar na hora |
+| Desativar completamente | Sequência de 6 passos em `IMPLANTACAO.md`, "Exportar, apagar e desativar tudo" |
+
+### Riscos que permanecem e que você aceita ao autorizar
+- O banco em uso não tem cifragem própria: depende da cifragem de disco da Oracle e do isolamento da VM.
+- A Oracle pode recuperar a VM gratuita por ociosidade ou encerrar a conta. Mitigação: backup externo diário
+  (perda máxima de 24 h) e cópia independente no iPhone. **Se os dois estiverem na Oracle e a conta for
+  encerrada, só a cópia do iPhone resta.**
+- Perder a chave de recuperação torna os backups ilegíveis. Perder a chave **e** a VM significa perder o histórico.
+- Não consegui abrir os termos de uso da Oracle e da Tailscale neste ambiente; leia-os quanto a dados sensíveis.
 
 ## 1. Onde os dados ficam e quem pode vê-los (fase 2)
 | Provedor | O que recebe | Onde fica | Observação |
@@ -40,7 +93,9 @@ O sistema é de uso pessoal: você é ao mesmo tempo titular e controlador dos d
   de memória e de processos, porta publicada só em `127.0.0.1`.
 - **VM:** atualizações de segurança automáticas; script opcional que fecha o SSH público depois que o
   acesso pela rede privada funciona.
-- **Backups:** cifrados; cada backup é decifrado e tem a integridade verificada logo após ser criado.
+- **Backups (atualizado na fase 3):** cópia consistente pela API de backup do SQLite, `integrity_check`, cifragem
+  assimétrica (X25519 + ChaCha20-Poly1305), checksum, envio diário ao bucket com conferência do SHA-256 e
+  alerta em qualquer falha. Ver `RECUPERACAO_DESASTRES.md`.
 - **Retenção:** respostas brutas da Garmin apagadas após 400 dias e histórico de execuções após 90
   (configurável); os indicadores diários ficam até você apagar.
 - **Seus direitos:** `healthmon exportar` (portabilidade) e `healthmon apagar-dados --confirmar` (exclusão).

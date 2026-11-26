@@ -1,12 +1,104 @@
 # Relatório de evidências científicas
 
-Gerado a partir de `healthmon/kb/evidencias.json` (56 registros). **Aviso importante:** estas referências foram
-redigidas durante o desenvolvimento sem acesso ao PubMed nem ao Crossref (bloqueados naquele ambiente). Cada
-uma traz autores, ano, periódico e DOI como eu os conheço, mas **nenhuma foi conferida automaticamente ainda**.
-No servidor, `healthmon kb verificar` consulta o Crossref e marca como conferidas as que tiverem título e ano
-compatíveis; o painel mostra o selo de cada uma. Trate as não conferidas como citações a confirmar.
+Gerado a partir de `healthmon/kb/evidencias.json` (56 registros) e de `healthmon/kb/verificacao.json`.
 
-Os resumos são meus, em uma frase, e não substituem a leitura do artigo.
+## Verificação das referências (fase 3, 2026-11-26)
+
+**Quem verificou:** modelos de IA (orquestração por Claude Fable 5.2; leitura de conteúdo pelo subagente
+`cientifico`, Claude Opus). **Não é auditoria humana independente** e não houve leitura integral de todos os artigos.
+
+**Como:** cada DOI foi consultado no Crossref (título, autores, ano, periódico, registros de correção e
+retratação); cada PMID no PubMed (resumo, tipo de publicação, erratas, retratações); 17 textos completos
+abertos no PubMed Central foram lidos onde o resumo não bastava. PubMed (site), Cochrane e os portais das
+diretrizes (IOM/NAP, EFSA, Anvisa) **não puderam ser abertos** no ambiente de desenvolvimento; documentos sem
+resumo no PubMed nem texto aberto ficaram como não verificados.
+
+| Classe | Quantas | Significado | Efeito no sistema |
+|---|---|---|---|
+| Verificada | 20 | Publicação confirmada e o conteúdo lido sustenta a regra | Regra ativa |
+| Parcialmente verificada | 29 | Publicação confirmada; parte do conteúdo usado não pôde ser conferida no texto lido | Regra ativa, com a ressalva mostrada no painel |
+| Não verificada | 6 | O conteúdo não pôde ser lido na fonte | **Regra personalizada desabilitada** |
+| Inadequada | 1 | A fonte não sustenta o uso feito dela | **Regra personalizada desabilitada** |
+
+Nenhuma retratação foi encontrada. Erratas: morton2018 (só declaração de conflito de interesses), mah2021
+(editorial), thomas2016 e holick2011 (texto da errata não obtido; classificadas como parciais).
+
+**Regras desabilitadas por falta de verificação** (nível mínimo configurável em `[evidencias] nivel_minimo`;
+o padrão é `parcialmente_verificada`):
+
+| Referência | Classe | O que ficou desabilitado |
+|---|---|---|
+| mountjoy2018 | Não verificada | Regra de disponibilidade energética como base de recomendação |
+| iom2005 | Não verificada | Meta de fibra por caloria (fica só o piso de 25 g da OMS, verificado) |
+| efsa2010 | Não verificada | Meta de água |
+| efsa2015caffeine | Não verificada | Avaliação individual de cafeína |
+| iom1997 | Não verificada | Avaliação individual de magnésio (limite superior) |
+| mah2021 | Inadequada | Avaliação individual de magnésio para sono |
+| anvisa2018 | Não verificada | Texto regulatório específico (o painel mostra só aviso genérico) |
+
+Para reativar uma regra é preciso ler a fonte original e atualizar `verificacao.json` com o que foi conferido.
+
+### Situação de cada referência
+| Chave | Classe | PMID | O que não foi confirmado ou ressalva |
+|---|---|---|---|
+| abdelhamid2020 | Verificada na fonte | 32114706 | A base omite a possível redução pequena de mortalidade e eventos coronarianos (RR 0,90 e 0,91; certeza baixa). "2–4 g/dia como uso médico para triglicerídeos" não está no resumo. |
+| acsm2009 | Parcialmente verificada | 19204579 | O mesociclo de 4 semanas com deload não aparece no resumo (cita "periodized fashion" sem duração). A limitação "criticada" não é verificável aqui. |
+| antonio2021 | Verificada na fonte | 33557850 | A magnitude de 1–2 kg de água não é confirmada; o texto também diz que a longo prazo a creatina "may not lead to water retention". |
+| anvisa2018 | Não verificada | — | Existência, número (RDC 243/2018 e IN 28/2018), vigência e conteúdo (limites por constituinte e alegações) não foram verificados. A própria base reconhece alterações posteriores. |
+| barakat2020 | Parcialmente verificada | — | "Proteína alta" não é citada no resumo, e "recomposição em manutenção calórica" (parte da regra) também não. Revisão narrativa sem PMID (Strength Cond J). |
+| bull2020 | Verificada na fonte | 33239350 | A parte da regra "HIIT só com liberação e experiência" não vem desta diretriz. |
+| clark2017 | Verificada na fonte | 26899133 | Nada relevante. |
+| cunningham1980 | Verificada na fonte | 7435418 | Nada além do que já foi dito; o resumo não traz o erro da equação. |
+| drake2013 | Parcialmente verificada | 24235903 | "Mais de 1 hora" de redução do sono e o tamanho da amostra não aparecem no resumo (o PMC só trouxe o resumo). O resumo chama 400 mg de "moderate dose"; a base diz "dose alta". |
+| efsa2010 | Não verificada | — | Publicação confirmada no Crossref, mas nenhum texto com o número usado pelo sistema foi lido; tratada como não verificada. |
+| efsa2015caffeine | Não verificada | — | Publicação confirmada no Crossref, mas nenhum texto com o número usado pelo sistema foi lido; tratada como não verificada. |
+| forbes2000 | Parcialmente verificada | 10865771 | A constante 10,4 da equação de Forbes, usada em healthmon/metabolism.py:117, não aparece no resumo. O intervalo de 6.000–9.400 kcal/kg da regra não vem desta fonte. |
+| frankenfield2005 | Verificada na fonte | 15883556 | Não há uma proporção numérica de acertos dentro de ±10% no resumo. O texto da regra ("erro individual de ±10%") é mais forte do que a fonte, que diz que a Mifflin acerta dentro de 10% em MAIS pessoas que as outras equações, e… |
+| garber2011 | Parcialmente verificada | 21694556 | A prescrição por reserva de FC e qualquer exigência de liberação para HIIT não aparecem no resumo. O resumo diz, ao contrário, que consulta e teste médicos "are not recommended for universal screening"; a cautela do sistema é… |
+| garthe2011 | Parcialmente verificada | 21558571 | O grupo "rápido" perdeu na prática cerca de 1,0%/semana, não 1,4%, e não perdeu massa magra (ficou estável). "Elite" não aparece no resumo, que diz apenas "athletes". |
+| gencer2021 | Parcialmente verificada | 34612056 | A ficha diz "doses mais altas associadas a maior risco de fibrilação atrial", mas a fonte mostra risco aumentado também com ≤1 g/dia (HR 1,12), justamente a dose que a ficha descreve como a dos ensaios de prevenção. |
+| guest2021 | Verificada na fonte | 33388079 | A ficha diz que "doses de ~2–3 mg/kg já mostram efeito"; a fonte diz que a dose mínima eficaz "remain unclear" e "may be as low as 2 mg/kg". Suavizar o texto. |
+| hall2007 | Parcialmente verificada | 17367567 | Nenhum número da regra (6.000–9.400 kcal/kg, constante 10,4) aparece no texto lido; o PMC só trouxe o resumo. |
+| hall2008 | Parcialmente verificada | 17848938 | Os valores 39,5 MJ/kg (gordura) e 7,6 MJ/kg (massa magra) não aparecem no resumo, e o texto do PMC (manuscrito NIHPA) só trouxe o resumo. O intervalo 6.000–9.400 kcal/kg usado em healthmon/metabolism.py:122-124 não aparece na… |
+| hall2011 | Parcialmente verificada | 21872751 | A regra que cita hall2011 ("Gasto total: três estimativas; vestível com erro de 20% ou mais; passos como heurística") só se apoia nele na via de gasto total pela tendência de peso (healthmon/metabolism.py:11-14;… |
+| helms2014 | Parcialmente verificada | 24864135 | A base diz que essas práticas "preservam" a massa magra; o resumo as apresenta como recomendação de revisão. Atenção também à unidade: a proteína é por kg de massa MAGRA, e a regra usa g/kg de peso total. |
+| holick2011 | Parcialmente verificada | 21646368 | A base restringe o "contra a dosagem rotineira" a adultos saudáveis com menos de 75 anos; a diretriz de 2024 desaconselha a dosagem rotineira em todas as populações consideradas (o limite de 75 anos se refere à suplementação… |
+| iom1997 | Não verificada | — | Publicação confirmada no Crossref, mas nenhum texto com o número usado pelo sistema foi lido; tratada como não verificada. |
+| iom2005 | Não verificada | — | Publicação confirmada no Crossref, mas nenhum texto com o número usado pelo sistema foi lido; tratada como não verificada. |
+| iom2011 | Parcialmente verificada | — | Os números foram confirmados por resumo secundário do próprio comitê, não pelo livro. |
+| jager2017 | Verificada na fonte | 28642676 | O piso de 1,0 g/kg da regra não vem desta fonte, e por refeição a ISSN diz 0,25 g/kg, não ~0,4 g/kg (que vem de schoenfeld2018meal). |
+| kiviniemi2007 | Parcialmente verificada | 17849143 | O estudo guiou o treino por UM sinal (HRV), então não sustenta "nunca um só"; sustenta só que a HRV pode orientar a intensidade. A diferença entre grupos foi limítrofe e com n de 8–9 por grupo. |
+| kreider2017 | Verificada na fonte | 28615996 | O ganho de "1–2 kg de água intracelular" da ficha não aparece: o texto fala em ~0,5–1,0 L com a fase de carga. A alternativa "~0,03 g/kg/dia" da ficha aparece só como dose de manutenção num estudo citado (Greenwood) e, para 70… |
+| levine2002 | Verificada na fonte | 12468415 | A frase "varia muito entre pessoas" só aparece de forma indireta (diferenças culturais e ocupacionais). |
+| lichtman1992 | Parcialmente verificada | 1454084 | O tipo "estudo com água duplamente marcada" não é confirmado pelo resumo, que descreve "indirect calorimetry and analysis of body composition". Pela minha memória o estudo usou água duplamente marcada, mas isso não foi lido e… |
+| mah2021 | Inadequada para a regra | 33865376 | A dose da ficha de magnésio ("Estudos usam 200–400 mg/dia de magnésio elementar") é CONTRADITA pela fonte: os ensaios usaram 320–729 mg/dia, em geral acima do limite superior de 350 mg/dia (iom1997) citado na mesma ficha. O… |
+| manson2019 | Parcialmente verificada | 30415629 | A população é de homens com 50 anos ou mais e mulheres com 55 anos ou mais, não "adultos" em geral. O resumo não diz que os participantes eram "sem deficiência": não houve seleção por nível de 25(OH)D. A frase da ficha "Em… |
+| manson2019n3 | Parcialmente verificada | 30415637 | "Possível benefício em quem come pouco peixe" não está no resumo. A redução de triglicerídeos e o risco de fibrilação atrial da ficha não vêm deste estudo. |
+| maughan2018 | Parcialmente verificada | 29540367 | A base coloca a beta-alanina entre os suplementos com boa evidência; o consenso diz "possibly also Beta-alanine". O risco de contaminação aparece como risco de doping inadvertido. |
+| meeusen2013 | Verificada na fonte | 23247672 | Nada relevante. |
+| mifflin1990 | Verificada na fonte | 2305711 | O resumo não informa o erro individual (±10%) citado na regra; isso vem de frankenfield2005. R2=0,71 indica variação individual relevante. |
+| milanovic2015 | Verificada na fonte | 26243014 | Nada relevante; vale registrar que a inferência foi "magnitude-based" (método estatístico contestado). |
+| morton2018 | Verificada na fonte | 28698222 | A base omite que o ponto de quebra não teve significância estatística (p=0,079) e foi estimado só com 42 braços (723 participantes). A frase do cartão de whey "não há vantagem sobre proteína de alimentos em quantidade… |
+| mountjoy2018 | Não verificada | 29773536 | Publicação confirmada no Crossref, mas nenhum texto com o número usado pelo sistema foi lido; tratada como não verificada. |
+| plews2013 | Parcialmente verificada | 23852425 | "Médias móveis ... mais informativas que valores isolados" é coerente com o resumo, mas não aparece como resultado quantificado. Ressalva importante que falta na base: em atletas de elite a HRV pode cair mesmo com boa… |
+| refalo2023 | Verificada na fonte | 36334240 | Nada relevante; a base omite a vantagem trivial na análise geral. |
+| rosenbaum2010 | Verificada na fonte | 20935667 | Nada relevante; a magnitude vem do próprio grupo de pesquisa, em amostras pequenas sob dieta líquida controlada (contexto meu, não lido). |
+| sawka2007 | Parcialmente verificada | 17277604 | A concentração de 20–30 mmol/L de sódio, a redução de risco de hiponatremia e o "sem benefício em treinos curtos" da ficha de eletrólitos não aparecem no resumo. |
+| schoenfeld2016freq | Parcialmente verificada | 27102172 | "Nem todos com volume equiparado": o resumo de 2016 diz que a conclusão vem de comparações "on a volume-equated basis", então essa limitação não se confirma no texto lido. |
+| schoenfeld2017load | Parcialmente verificada | 28834797 | A base diz "quando as séries chegam perto da falha", mas o critério de inclusão foi falha muscular momentânea em todas as séries. Este estudo não sustenta o uso de repetições em reserva nem a frase "sem necessidade de falha". |
+| schoenfeld2017volume | Parcialmente verificada | 27433992 | A base afirma que "10 ou mais séries ... produziram os maiores ganhos", mas no resumo a análise em 3 categorias (<5, 5-9, 10+) só "showed a trend for an effect of weekly sets (P = 0.074)", sem significância. "Maioria com… |
+| schoenfeld2018meal | Verificada na fonte | 29497353 | Nada relevante. |
+| shcherbina2017 | Verificada na fonte | 28538708 | Nada relevante a acrescentar; a ausência de Garmin se confirma pela lista de aparelhos. |
+| slater2019 | Parcialmente verificada | 31482093 | "Superávits grandes aumentam sobretudo a gordura" não é afirmado como resultado; o texto só menciona "the potential for increments in fat mass". |
+| tanaka2001 | Parcialmente verificada | 11153730 | O desvio-padrão de cerca de 10 bpm (citado na base e no texto de training.py:167) não aparece no resumo. |
+| thomas2016 | Parcialmente verificada | 26891166 | Carboidrato de 3–12 g/kg, sódio de 20–30 mmol/L (≈0,5–0,7 g/L) e a frase sobre hiponatremia na ficha de eletrólitos não aparecem no resumo; o texto completo não estava disponível nas fontes permitidas. |
+| trexler2015 | Verificada na fonte | 26175657 | Nada relevante. |
+| tudorlocke2004 | Verificada na fonte | 14715035 | Nada relevante. |
+| watson2015 | Parcialmente verificada | 26039963 | O número "7 horas ou mais" não aparece em nenhum texto lido. Pela minha memória a recomendação é essa, mas isso não altera a classe. |
+| who2023carb | Parcialmente verificada | 37490573 | Os números foram lidos em resumo secundário em alemão e inglês, não no documento da OMS. |
+| zourdos2016 | Parcialmente verificada | 26049792 | "Mais precisa em experientes" e "precisão menor longe da falha" não são afirmados no resumo; só há a correlação maior em experientes. O estudo não testou a precisão da RIR prevista contra as repetições realizadas. |
+
+Os resumos da base são meus, em uma frase, e não substituem a leitura do artigo.
 
 ## Onde cada evidência é usada
 
