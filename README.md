@@ -5,7 +5,7 @@ banco SQLite, constrói linhas de base individuais e produz, todos os dias, um p
 nutricionais e pontos de atenção, cada item com justificativa, dados usados, evidência científica e grau
 de confiança. Roda sozinho numa VM gratuita e é usado pelo iPhone como um app (PWA).
 
-> **Estado em 26/11/2026:** o código está completo e passa em 108 testes automatizados com **dados
+> **Estado em 26/11/2026:** o código está completo e passa em 131 testes automatizados com **dados
 > sintéticos**. **A integração real com a Garmin ainda não foi validada** e nada foi implantado: isso
 > depende de você criar a VM e digitar a sua chave no servidor. Veja `docs/RELATORIO_FASE2.md`.
 
@@ -45,7 +45,7 @@ de confiança. Roda sozinho numa VM gratuita e é usado pelo iPhone como um app 
 ## Desenvolvimento
 ```bash
 python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
-pytest -q                                   # 108 testes, só dados sintéticos
+pytest -q                                   # 131 testes, só dados sintéticos
 HEALTHMON_HOME=/tmp/hm-demo healthmon init && HEALTHMON_HOME=/tmp/hm-demo healthmon demo   # banco de demonstração
 ```
 Subagentes do Claude Code para manutenção estão em `.claude/agents/` (arquiteto, desenvolvedor,

@@ -338,11 +338,16 @@ def main(argv: list[str] | None = None) -> int:
         if not args.confirmar or input('Isto apaga TUDO de forma irreversível. Digite APAGAR: ').strip() != "APAGAR":
             print("Nada foi apagado. Use --confirmar e digite APAGAR.")
             return 1
-        for name in ("healthmon.db", "healthmon.db-wal", "healthmon.db-shm", "dashboard_auth.json", "vapid.json",
-                     "kb_verificacao.json", "consentimento_ia_nuvem.json", "healthmon.log"):
+        for name in ("healthmon.db", "dashboard_auth.json", "vapid.json", "kb_verificacao.json", "kb_extra.json",
+                     "consentimento_ia_nuvem.json", "healthmon.log", "secrets.env"):
             (cfg.home / name).unlink(missing_ok=True)
-        for d in ("tokens", "relatorios", "exames", "backups"):
-            shutil.rmtree(cfg.home / d, ignore_errors=True)
+        for f in list(cfg.home.glob("healthmon*.db*")) + [cfg.db_path, Path(str(cfg.db_path) + "-wal"), Path(str(cfg.db_path) + "-shm")]:
+            f.unlink(missing_ok=True)
+        for d in (cfg.home / "tokens", cfg.home / "relatorios", cfg.home / "exames", cfg.home / "backups", cfg.backup_dir):
+            shutil.rmtree(d, ignore_errors=True)
+        left = [f.name for f in cfg.home.iterdir()] if cfg.home.exists() else []
+        print("Restou na pasta de dados:", ", ".join(left) or "nada")
+        print("Apague também, se existirem: arquivos de exportação, cópias de backup fora do servidor e /tmp/validacao-garmin.txt.")
         print("Dados apagados. Para encerrar o acesso à Garmin, revogue a chave pessoal no site da Garmin.")
         return 0
     return 1

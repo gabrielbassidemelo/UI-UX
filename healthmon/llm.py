@@ -83,7 +83,10 @@ def _user_prompt(kind: str, facts: dict[str, Any]) -> str:
 
 
 def _ollama(cfg: Config, kind: str, facts: dict[str, Any]) -> str:
+    from urllib.parse import urlsplit
     url = cfg.get("ia", "ollama_url", "http://127.0.0.1:11434").rstrip("/")
+    if (urlsplit(url).hostname or "") not in ("127.0.0.1", "localhost", "::1", "ollama"):
+        raise RuntimeError("ollama_url aponta para outra máquina; a modalidade local só aceita o próprio servidor")
     r = requests.post(f"{url}/api/chat", timeout=180, json={
         "model": cfg.get("ia", "ollama_modelo"),
         "stream": False,

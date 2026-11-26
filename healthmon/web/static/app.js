@@ -481,6 +481,7 @@
         <label class="full">Medicamentos em uso (ou "nenhum")<input name="medicamentos" value="${lst("medicamentos")}"></label>
         <label class="full">Restrições alimentares (ou "nenhuma")<input name="restricoes_alimentares" value="${lst("restricoes_alimentares")}"></label>
         <label class="full">Liberação médica para exercício intenso<select name="liberacao_medica">${opt({ nao: "Não / não sei", sim: "Sim" }, v.liberacao_medica ? "sim" : "nao")}</select></label>
+        <label class="full">Está grávida ou amamentando? (obrigatório para mulheres)<select name="gestante_ou_lactante"><option value=""></option>${opt({ nao: "Não", sim: "Sim" }, v.gestante_ou_lactante == null ? "" : v.gestante_ou_lactante ? "sim" : "nao")}</select></label>
         <button class="primary full" type="submit">Salvar perfil</button></form>
         <p class="small muted">Esses dados ficam só no seu servidor e alimentam as estimativas e os limites de segurança.</p></div>
       <h2>Notificações no iPhone</h2><div class="card"><p class="small">Requer o app adicionado à Tela de Início (iOS 16.4 ou mais recente) e acesso por HTTPS. As mensagens são genéricas, sem dados de saúde.</p>
@@ -499,6 +500,7 @@
         <details><summary>Indicadores fornecidos pelo dispositivo (30 dias)</summary><div class="inner">${Object.values(st.disponibilidade).map((r) => `<div class="row"><span>${esc(r.rotulo)}</span><span class="r">${esc(r.status)} · ${r.dias_com_dado}/${r.dias}</span></div>`).join("")}</div></details></div>
       <button id="btn-logout" class="secondary">Sair</button><p class="small muted">${esc(META.aviso)}</p>`;
     onSubmit("#profile", async (d) => { d.liberacao_medica = d.liberacao_medica === "sim";
+      d.gestante_ou_lactante = d.gestante_ou_lactante === "" ? null : d.gestante_ou_lactante === "sim";
       // em branco = não informado (o módulo continua pedindo); "nenhum(a)" = lista vazia declarada
       ["limitacoes", "condicoes_saude", "medicamentos", "restricoes_alimentares"].forEach((k) => { const t = d[k].trim();
         d[k] = t === "" ? null : /^nenhum/i.test(t) ? [] : t.split(",").map((x) => x.trim()).filter(Boolean); });

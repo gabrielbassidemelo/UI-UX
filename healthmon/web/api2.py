@@ -4,6 +4,8 @@ Todas passam pelo middleware de sessão e CSRF de app.py. Erros de validação v
 """
 from __future__ import annotations
 
+import math
+import re
 from datetime import date, timedelta
 from typing import Any, Callable
 
@@ -26,8 +28,23 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
     def guard(fn):
         try:
             return fn()
-        except (ValueError, KeyError, TypeError) as e:
+        except (ValueError, KeyError, TypeError, OverflowError) as e:
             raise HTTPException(400, str(e)) from e
+
+    def num(b: dict, k: str, lo: float, hi: float, required: bool = False) -> float | None:
+        """Número finito dentro de [lo, hi]; vazio vira None. Rejeita inf, nan e valores absurdos."""
+        v = b.get(k)
+        if v in (None, ""):
+            if required:
+                raise HTTPException(400, f"{k}: obrigatório")
+            return None
+        try:
+            f = float(str(v).replace(",", "."))
+        except (ValueError, OverflowError) as e:
+            raise HTTPException(400, f"{k}: número inválido") from e
+        if not math.isfinite(f) or not lo <= f <= hi:
+            raise HTTPException(400, f"{k}: fora do intervalo {lo:g}–{hi:g}")
+        return f
 
     async def body(request: Request) -> dict[str, Any]:
         try:
@@ -96,9 +113,8 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
     @app.post("/api/peso")
     async def peso(request: Request):
         b = await body(request)
-        guard(lambda: prof.record_weight(db, day_arg(b.get("dia")).isoformat(), float(b["peso_kg"]),
-                                         *(float(b[k]) if b.get(k) not in (None, "") else None
-                                           for k in ("gordura_pct", "musculo_kg", "cintura_cm"))))
+        guard(lambda: prof.record_weight(db, day_arg(b.get("dia")).isoformat(), num(b, "peso_kg", 30, 300, True),
+                                         num(b, "gordura_pct", 3, 60), num(b, "musculo_kg", 10, 150), num(b, "cintura_cm", 40, 250)))
         return {"ok": True}
 
     @app.get("/api/composicao")
@@ -154,8 +170,8 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
     @app.post("/api/treino/serie")
     async def treino_serie(request: Request):
         b = await body(request)
-        rid = guard(lambda: tr.log_set(db, day_arg(b.get("dia")).isoformat(), str(b["exercicio"])[:80], float(b["reps"]),
-                                       float(b["carga_kg"]), float(b["rir"]) if b.get("rir") not in (None, "") else None,
+        rid = guard(lambda: tr.log_set(db, day_arg(b.get("dia")).isoformat(), str(b["exercicio"])[:80], num(b, "reps", 1, 100, True),
+                                       num(b, "carga_kg", 0, 600, True), num(b, "rir", 0, 10),
                                        str(b.get("sessao", ""))[:60] or None))
         return {"id": rid}
 
@@ -164,8 +180,7 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
         b = await body(request)
         rid = guard(lambda: tr.log_session(db, day_arg(b.get("dia")).isoformat(), str(b.get("sessao", ""))[:60],
                                            str(b.get("tipo", "forca"))[:20],
-                                           float(b["duracao_min"]) if b.get("duracao_min") else None,
-                                           float(b["rpe"]) if b.get("rpe") else None,
+                                           num(b, "duracao_min", 1, 600), num(b, "rpe", 1, 10),
                                            str(b.get("periodo", ""))[:10] or None, str(b.get("notas", ""))[:300] or None))
         if b.get("seguiu_recomendacao") is not None:
             dec = db.q1("SELECT id FROM decisions WHERE date=? AND area='treino' ORDER BY id DESC LIMIT 1",
@@ -215,9 +230,12 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
         d = day_arg(b.get("dia")).isoformat()
         if b.get("texto"):
             return guard(lambda: nut.log_meal_text(db, d, str(b["texto"])[:600], str(b.get("hora", ""))[:5] or None))
-        f = lambda k: float(b[k]) if b.get(k) not in (None, "") else None  # noqa: E731
-        rid = guard(lambda: nut.log_meal(db, d, str(b.get("descricao", "Refeição"))[:300], f("kcal"), f("proteina_g"),
-                                         f("carboidrato_g"), f("gordura_g"), f("fibra_g"), str(b.get("hora", ""))[:5] or None))
+        hora = str(b.get("hora", ""))[:5]
+        if hora and not re.fullmatch(r"\d{2}:\d{2}", hora):
+            raise HTTPException(400, "hora: use HH:MM")
+        rid = guard(lambda: nut.log_meal(db, d, str(b.get("descricao", "Refeição"))[:300], num(b, "kcal", 0, 6000),
+                                         num(b, "proteina_g", 0, 500), num(b, "carboidrato_g", 0, 1500), num(b, "gordura_g", 0, 600),
+                                         num(b, "fibra_g", 0, 200), hora or None))
         return {"id": rid}
 
     @app.delete("/api/refeicoes/{mid}")
@@ -281,7 +299,7 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
     @app.post("/api/objetivos")
     async def objetivos_post(request: Request):
         b = await body(request)
-        return guard(lambda: planner.add_goal(db, str(b["metrica"]), float(b["alvo"]), str(b["prazo"]), today()))
+        return guard(lambda: planner.add_goal(db, str(b["metrica"]), num(b, "alvo", 0, 100000, True), str(b["prazo"]), today()))
 
     @app.delete("/api/objetivos/{gid}")
     def objetivos_del(gid: int):
@@ -376,5 +394,5 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
         from ..push import send_push
         try:
             return {"enviados": send_push(cfg, db, "healthmon", "Notificações ativadas neste aparelho.")}
-        except Exception as e:  # noqa: BLE001
-            raise HTTPException(503, f"Push indisponível: {e}") from e
+        except Exception as e:  # noqa: BLE001 — mensagem genérica: detalhes de rede não vão para o cliente
+            raise HTTPException(503, "Push indisponível: ative as notificações neste aparelho e confira o servidor.") from e

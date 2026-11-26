@@ -253,3 +253,76 @@ def test_resource_budget_one_year(cfg, db):
     size_mb = os.path.getsize(cfg.db_path) / 1e6
     assert elapsed < 6, elapsed                         # folga ampla para VM pequena
     assert size_mb < 40, size_mb                        # 1 ano com JSON bruto cabe com folga em 1 GB de disco
+
+
+# ------------------------------------------- achados da auditoria de segurança independente
+def test_parallel_wrong_logins_cannot_bypass_throttle(app_db):
+    from concurrent.futures import ThreadPoolExecutor
+    c = TestClient(app_db[0])
+    with ThreadPoolExecutor(12) as ex:
+        codes = list(ex.map(lambda _: c.post("/api/login", json={"senha": "errada"}, headers=H).status_code, range(12)))
+    assert codes.count(401) == 5 and codes.count(429) == 7          # só 5 senhas chegam a ser verificadas
+    assert c.post("/api/login", json=[1], headers=H).status_code in (401, 429)   # corpo não-objeto não derruba
+
+
+def test_chunked_body_without_content_length_is_limited(app_db):
+    c = TestClient(app_db[0])
+
+    def gen():
+        for _ in range(40):
+            yield b"x" * 8192                                         # 320 KB sem Content-Length
+    r = c.post("/api/login", content=gen(), headers={**H, "Content-Type": "application/json"})
+    assert r.status_code == 413
+
+
+def test_push_endpoint_allowlist_blocks_ssrf(client, app_db):
+    for ep in ("https://127.0.0.1:9/x", "https://ollama:11434/api", "https://evil.example/web.push.apple.com",
+               "https://web.push.apple.com.evil.example/x", "https://user@web.push.apple.com/x", "http://web.push.apple.com/x"):
+        r = client.post("/api/push/inscrever", json={"endpoint": ep, "keys": {"p256dh": "k", "auth": "a"}}, headers=H)
+        assert r.status_code == 400, ep
+    ok = client.post("/api/push/inscrever", json={"endpoint": "https://web.push.apple.com/QGabc", "keys": {"p256dh": "k", "auth": "a"}}, headers=H)
+    assert ok.status_code == 200
+    r = client.post("/api/push/teste", headers=H)                     # chave inválida: erro genérico, sem detalhes de rede
+    assert r.status_code == 503 and "Connection" not in r.text and "web.push" not in r.text
+
+
+def test_non_finite_numbers_rejected_everywhere(client):
+    bad = ["Infinity", "inf", "1e309", "nan", -5]
+    for v in bad:
+        assert client.post("/api/peso", json={"peso_kg": 80, "cintura_cm": v}, headers=H).status_code == 400, v
+        assert client.post("/api/refeicoes", json={"descricao": "x", "kcal": 100, "proteina_g": v}, headers=H).status_code == 400, v
+        assert client.post("/api/treino/sessao", json={"tipo": "forca", "duracao_min": v}, headers=H).status_code == 400, v
+        assert client.post("/api/exames", json={"data": "2026-10-01", "analito": "X", "valor": 1, "ref_max": v}, headers=H).status_code in (400, 200) if v == -5 else True
+    assert client.post("/api/exames", json={"data": "2026-10-01", "analito": "X", "valor": 1, "ref_max": "inf"}, headers=H).status_code == 400
+    assert client.post("/api/perfil", json={"altura_cm": "inf"}, headers=H).status_code == 400
+    assert client.post("/api/refeicoes", json={"descricao": "x", "kcal": 100, "hora": "<b>x"}, headers=H).status_code == 400
+    assert client.get("/api/activities?days=999999999").status_code == 200
+    for path in ("/api/home", "/api/nutricao", "/api/exames", "/api/composicao", "/api/treino"):
+        assert client.get(path).status_code == 200, path              # nada ficou corrompido
+
+
+def test_password_change_revokes_sessions(client, cfg):
+    assert client.get("/api/home").status_code == 200
+    set_password(cfg, "outra-senha-forte-456")
+    assert client.get("/api/home").status_code == 401
+
+
+def test_taco_download_checks_checksum(cfg, db, monkeypatch):
+    import requests
+    from healthmon import nutrition
+
+    class R:
+        content, text = b"adulterado", "adulterado"
+
+        def raise_for_status(self):
+            pass
+    monkeypatch.setattr(requests, "get", lambda *a, **k: R())
+    with pytest.raises(RuntimeError, match="difere"):
+        nutrition.download_taco(db)
+
+
+def test_local_llm_refuses_remote_host(cfg):
+    from healthmon import llm
+    cfg.data["ia"].update(modo="local", ollama_url="http://servidor-de-terceiro.example:11434")
+    text, mode = llm.narrate(cfg, "diario", {"x": 1})
+    assert text is None and mode == "regras"

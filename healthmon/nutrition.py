@@ -41,6 +41,7 @@ PROTEIN = {"emagrecimento": (1.8, 2.2, 2.0), "recomposicao": (1.8, 2.2, 2.0), "h
            "forca": (1.6, 2.2, 1.8), "desempenho": (1.4, 2.0, 1.6), "condicionamento": (1.2, 1.8, 1.5),
            "manutencao": (1.2, 1.6, 1.4), "saude": (1.0, 1.6, 1.2)}
 MACRO_KCAL = {"protein_g": 4, "carb_g": 4, "fat_g": 9}
+TACO_SHA256 = "8c0f7c701eadc9d2afa2711688e3d9523a3a2ad0c1ebcf1fa2fc9e6d08f916ab"   # arquivo conferido em 26/11/2026
 TACO_URL = "https://raw.githubusercontent.com/machine-learning-mocha/taco/main/formatados/alimentos.csv"
 
 
@@ -234,8 +235,12 @@ def download_taco(db: Database, url: str = TACO_URL) -> dict[str, int]:
     """Baixa a TACO (NEPA/UNICAMP, 4ª ed.) de um espelho público e importa. Não envia nenhum dado seu."""
     import tempfile
     import requests
+    import hashlib
     r = requests.get(url, timeout=60)
     r.raise_for_status()
+    if url == TACO_URL and hashlib.sha256(r.content).hexdigest() != TACO_SHA256:
+        raise RuntimeError("O arquivo da TACO baixado difere do conferido no desenvolvimento; importação cancelada. "
+                           "Baixe a tabela da fonte oficial (NEPA/UNICAMP) e use `healthmon alimentos importar`.")
     with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as f:
         f.write(r.text)
     try:

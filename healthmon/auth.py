@@ -13,12 +13,13 @@ from datetime import datetime, timedelta, timezone
 from .config import Config, write_private_file
 from .db import Database
 
-N, R, P = 2**15, 8, 1
+N, R, P = 2**17, 8, 1          # parâmetros recomendados pela OWASP para scrypt
+MAXMEM = 256 * 1024 * 1024
 
 
 def hash_password(pw: str) -> str:
     salt = secrets.token_bytes(16)
-    h = hashlib.scrypt(pw.encode(), salt=salt, n=N, r=R, p=P, maxmem=64 * 1024 * 1024, dklen=32)
+    h = hashlib.scrypt(pw.encode(), salt=salt, n=N, r=R, p=P, maxmem=MAXMEM, dklen=32)
     return f"scrypt${N}${R}${P}${base64.b64encode(salt).decode()}${base64.b64encode(h).decode()}"
 
 
@@ -26,7 +27,7 @@ def verify_password(pw: str, stored: str) -> bool:
     try:
         _, n, r, p, salt, h = stored.split("$")
         calc = hashlib.scrypt(pw.encode(), salt=base64.b64decode(salt), n=int(n), r=int(r), p=int(p),
-                              maxmem=64 * 1024 * 1024, dklen=32)
+                              maxmem=MAXMEM, dklen=32)
         return hmac.compare_digest(calc, base64.b64decode(h))
     except (ValueError, TypeError):
         return False
@@ -36,6 +37,10 @@ def set_password(cfg: Config, pw: str) -> None:
     if len(pw) < 10:
         raise ValueError("Use uma senha com pelo menos 10 caracteres.")
     write_private_file(cfg.auth_file, json.dumps({"password": hash_password(pw)}))
+    # Trocar a senha encerra todas as sessões abertas (ex.: aparelho perdido).
+    if cfg.db_path.exists():
+        with Database(cfg.db_path).conn() as c:
+            c.execute("DELETE FROM sessions")
 
 
 def stored_hash(cfg: Config) -> str | None:
@@ -73,12 +78,28 @@ def end_session(db: Database, token: str | None) -> None:
 
 
 class LoginThrottle:
-    """Após 5 falhas em 15 min a partir do mesmo IP, bloqueia por 15 min."""
+    """Após 5 tentativas erradas em 15 min, bloqueia por 15 min.
+
+    Atrás do Docker e do tailscale serve todo cliente aparece com o mesmo IP, então o limite é
+    GLOBAL de propósito (o app tem um único usuário). `attempt()` reserva a tentativa ANTES de
+    verificar a senha e serializa a verificação, o que impede disparar tentativas em paralelo."""
+
+    def attempt(self, verify) -> bool | None:
+        """Retorna None se bloqueado; senão o resultado de verify() (True/False)."""
+        with self.verify_lock:
+            if self.blocked("global"):
+                return None
+            self.fail("global")                 # reserva
+            ok = bool(verify())
+            if ok:
+                self.reset("global")
+            return ok
 
     def __init__(self, max_fail: int = 5, window_s: int = 900):
         self.max_fail, self.window = max_fail, window_s
         self.fails: dict[str, list[float]] = {}
         self.lock = threading.Lock()
+        self.verify_lock = threading.Lock()
 
     def blocked(self, ip: str) -> bool:
         with self.lock:

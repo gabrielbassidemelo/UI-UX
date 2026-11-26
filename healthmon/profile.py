@@ -84,7 +84,11 @@ def validate(field: str, value: Any) -> Any:
             value = value.strip().lower() in ("1", "sim", "true", "s")
         return bool(value)
     if typ in (int, float):
-        v = typ(float(value))
+        import math
+        fv = float(value)
+        if not math.isfinite(fv):
+            raise ValueError(f"{field}: número inválido")
+        v = typ(fv)
         if not (rule[0] <= v <= rule[1]):
             raise ValueError(f"{field}: valor fora do intervalo plausível {rule[0]}–{rule[1]}")
         return v

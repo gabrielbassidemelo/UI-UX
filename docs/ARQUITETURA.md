@@ -63,7 +63,7 @@ autenticação e a casca do painel. Os 28 testes originais continuam passando se
 | Tendência de peso | EWMA de 7 dias + regressão linear com IC95% | Simples, transparente, com incerteza |
 | Mudança persistente | Regra de 7 dias (fase 1) + CUSUM robusto | Dois métodos independentes |
 | Previsão de 1 dia | Comparação entre último valor, sazonal semanal, mediana de 7 dias, suavização exponencial e Holt amortecido | Escolha em 60% das previsões e medição nos 40% restantes; só troca o método ingênuo com ganho ≥ 5% |
-| Efeito em experimentos | Diferença de medianas + teste de permutação, mínimo de 6 dias por condição | Não assume distribuição; serve para amostras pequenas |
+| Efeito em experimentos | Médias por bloco + teste de permutação, mínimo de 5 blocos por condição | Não assume distribuição; respeita a dependência entre dias seguidos |
 
 **Não adotados:** ETS completo, ARIMA, aprendizado de máquina e modelos de fundação para séries temporais
 (como o TimesFM). Com uma série diária por indicador e poucos meses de histórico, não há base para esperar
@@ -100,6 +100,8 @@ ainda.
 O sistema tem duas e nenhuma é indicador clínico:
 - **Qualidade dos dados (0–100):** média da cobertura, nos últimos 14 dias, dos indicadores principais que
   o dispositivo fornece. Mede completude, não saúde.
-- **Pontos de prontidão para treino:** soma de sinais (indicadores objetivos, percepção subjetiva, sono
-  curto, pico de carga), cada um valendo 1 ou 2; 0–1 treino normal, 2–3 reduzido, 4 ou mais recuperação.
+- **Pontos de prontidão para treino:** soma de sinais (quatro grupos objetivos independentes — HRV, FC de
+  repouso, sono e estresse no sono —, percepção subjetiva, sono curto, pico de carga), cada um valendo 1
+  ou 2; 0–1 treino normal, 2–3 reduzido, 4 ou mais recuperação. Body Battery e prontidão do Garmin ficam
+  de fora por serem índices compostos de HRV e sono.
   Os pesos são uma regra de decisão transparente, **não validada em estudo**, e ficam visíveis no painel.

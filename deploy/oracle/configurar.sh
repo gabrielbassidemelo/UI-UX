@@ -31,6 +31,7 @@ read -r -s -p "Chave pessoal: " GK; echo
 [ -n "$GK" ] || { echo "Chave vazia."; exit 1; }
 put GARMIN_PERSONAL_API_KEY "$GK"; unset GK
 read -r -p "Data de expiração que você escolheu para a chave (AAAA-MM-DD): " EXP
+[[ "$EXP" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "Data inválida; use AAAA-MM-DD."; exit 1; }
 sudo sed -i "s/^chave_expira_em = .*/chave_expira_em = \"$EXP\"/" data/config.toml
 
 say "4/7 Frase-senha dos backups"

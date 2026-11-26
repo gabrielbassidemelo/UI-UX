@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import Body, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -22,6 +22,51 @@ from ..sync import availability, today_local
 STATIC = Path(__file__).parent / "static"
 COOKIE = "hm_session"
 PUBLIC = {"/login", "/api/login", "/healthz", "/manifest.webmanifest", "/sw.js"}
+
+
+def body_limit(path: str) -> int:
+    return 16 * 1024 * 1024 if path == "/api/exames/arquivo" else 64 * 1024
+
+
+class BodyLimit:
+    """Conta os bytes recebidos de fato (inclusive em envio 'chunked', sem Content-Length) e
+    interrompe a requisição ao passar do limite."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        limit, seen, over = body_limit(scope["path"]), 0, False
+
+        async def limited():
+            nonlocal seen, over
+            msg = await receive()
+            if msg["type"] == "http.request":
+                seen += len(msg.get("body", b""))
+                if seen > limit:
+                    over = True
+                    raise _TooLarge()               # interrompe a leitura: o restante não é carregado
+            return msg
+        started = False
+
+        async def tracked(msg):
+            nonlocal started
+            if msg["type"] == "http.response.start":
+                started = True
+                if over:                            # o framework converteu a interrupção em erro genérico
+                    msg = {**msg, "status": 413}
+            await send(msg)
+        try:
+            await self.app(scope, limited, tracked)
+        except _TooLarge:
+            if not started:
+                await JSONResponse({"erro": "corpo da requisição grande demais"}, status_code=413)(scope, receive, send)
+
+
+class _TooLarge(Exception):
+    pass
 
 
 def create_app(cfg: Config, db: Database, sync_fn: Callable[[], Any] | None = None) -> FastAPI:
@@ -41,9 +86,8 @@ def create_app(cfg: Config, db: Database, sync_fn: Callable[[], Any] | None = No
             return RedirectResponse("/login", status_code=303)
         if request.method not in ("GET", "HEAD") and request.headers.get("x-hm") != "1":
             return JSONResponse({"erro": "requisição recusada"}, status_code=403)
-        limit = 16 * 1024 * 1024 if path == "/api/exames/arquivo" else 64 * 1024
         try:
-            if int(request.headers.get("content-length") or 0) > limit:
+            if int(request.headers.get("content-length") or 0) > body_limit(path):
                 return JSONResponse({"erro": "corpo da requisição grande demais"}, status_code=413)
         except ValueError:
             return JSONResponse({"erro": "content-length inválido"}, status_code=400)
@@ -86,18 +130,19 @@ def create_app(cfg: Config, db: Database, sync_fn: Callable[[], Any] | None = No
 
     # --------------------------------------------------------------- auth
     @app.post("/api/login")
-    async def login(request: Request, response: Response):
-        ip = request.client.host if request.client else "?"
-        if throttle.blocked(ip):
-            raise HTTPException(429, "Muitas tentativas. Aguarde 15 minutos.")
-        body = await request.json()
+    def login(request: Request, response: Response, payload: Any = Body(default=None)):
+        # Função síncrona de propósito: roda fora do laço de eventos, então o scrypt não trava o servidor.
         stored = auth.stored_hash(cfg)
         if not stored:
             raise HTTPException(503, "Senha do dashboard não definida. Rode `healthmon senha-dashboard`.")
-        if not auth.verify_password(str(body.get("senha", "")), stored):
-            throttle.fail(ip)
+        pw = str(payload.get("senha", "")) if isinstance(payload, dict) else ""
+        if len(pw) > 256:
+            raise HTTPException(400, "Senha inválida.")
+        ok = throttle.attempt(lambda: auth.verify_password(pw, stored))
+        if ok is None:
+            raise HTTPException(429, "Muitas tentativas. Aguarde 15 minutos.")
+        if not ok:
             raise HTTPException(401, "Senha incorreta.")
-        throttle.reset(ip)
         token = auth.create_session(db, session_days, request.headers.get("user-agent", ""))
         response.set_cookie(COOKIE, token, max_age=session_days * 86400, httponly=True,
                             samesite="strict", secure=https, path="/")
@@ -195,6 +240,7 @@ def create_app(cfg: Config, db: Database, sync_fn: Callable[[], Any] | None = No
 
     @app.get("/api/activities")
     def activities(days: int = 30):
+        days = max(1, min(days, 3650))
         end = ref_day()
         return db.activities_range((end - timedelta(days=days - 1)).isoformat(), end.isoformat())
 
@@ -247,4 +293,5 @@ def create_app(cfg: Config, db: Database, sync_fn: Callable[[], Any] | None = No
 
     from .api2 import register
     register(app, cfg, db, ref_day)
+    app.add_middleware(BodyLimit)
     return app

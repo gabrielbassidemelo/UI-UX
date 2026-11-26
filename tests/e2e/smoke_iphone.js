@@ -11,7 +11,7 @@ const { chromium, devices } = require('playwright');
   p.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
   p.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
   p.on('response', r => { if (r.status() >= 400 && !r.url().includes('push')) errs.push(r.status() + ' ' + r.url()); });
-  await p.goto('process.env.HM_URL || 'http://127.0.0.1:8765/'');
+  await p.goto(process.env.HM_URL || 'http://127.0.0.1:8765/');
   await p.fill('#senha', process.env.HM_SENHA || 'senha-demo-123'); await p.click('button[type=submit]');
   await p.waitForSelector('#checkin');
   const check = async (name) => {

@@ -37,10 +37,26 @@ def vapid_keys(cfg: Config) -> dict[str, str]:
     return data
 
 
+PUSH_HOSTS = ("web.push.apple.com", "fcm.googleapis.com", "updates.push.services.mozilla.com")
+PUSH_SUFFIXES = (".push.apple.com", ".notify.windows.com")
+
+
+def allowed_endpoint(ep: str) -> bool:
+    """Só serviços de push conhecidos: o servidor nunca envia requisições a endereços arbitrários (anti-SSRF)."""
+    from urllib.parse import urlsplit
+    try:
+        u = urlsplit(ep)
+    except ValueError:
+        return False
+    host = (u.hostname or "").lower()
+    return (u.scheme == "https" and u.port in (None, 443) and not u.username
+            and (host in PUSH_HOSTS or host.endswith(PUSH_SUFFIXES)))
+
+
 def subscribe(db: Database, sub: dict[str, Any]) -> None:
     ep, keys = str(sub.get("endpoint", "")), sub.get("keys") or {}
-    if not ep.startswith("https://") or len(ep) > 1000 or not keys.get("p256dh") or not keys.get("auth"):
-        raise ValueError("Inscrição de push inválida")
+    if not allowed_endpoint(ep) or len(ep) > 1000 or not keys.get("p256dh") or not keys.get("auth"):
+        raise ValueError("Inscrição de push inválida ou de serviço não reconhecido")
     db.insert("push_subscriptions", {"endpoint": ep, "p256dh": str(keys["p256dh"])[:200], "auth": str(keys["auth"])[:100],
                                      "created_at": utcnow()}, upsert_on="endpoint")
 
@@ -58,6 +74,9 @@ def send_push(cfg: Config, db: Database, title: str, body: str, url: str = "/") 
     contact = cfg.get("notificacoes", "push_contato", "") or "mailto:admin@localhost"
     sent = 0
     for s in subs:
+        if not allowed_endpoint(s["endpoint"]):
+            unsubscribe(db, s["endpoint"])
+            continue
         try:
             webpush(subscription_info={"endpoint": s["endpoint"], "keys": {"p256dh": s["p256dh"], "auth": s["auth"]}},
                     data=json.dumps({"title": title, "body": body, "url": url}, ensure_ascii=False),
@@ -68,6 +87,8 @@ def send_push(cfg: Config, db: Database, title: str, body: str, url: str = "/") 
             if code in (404, 410):          # inscrição expirada: remove
                 unsubscribe(db, s["endpoint"])
             log.warning("Push falhou (HTTP %s)", code)
+        except Exception as e:  # noqa: BLE001 — uma inscrição ruim não impede as demais
+            log.warning("Push falhou (%s)", type(e).__name__)
     if not sent:
         raise RuntimeError("Nenhum push entregue")
     return sent

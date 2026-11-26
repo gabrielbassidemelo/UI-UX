@@ -51,9 +51,12 @@ Referências com o selo "conferência automática pendente" ainda não foram che
   alimentar incompleto). O próprio painel indica o que registrar em *Próximas ações*.
 
 ## Limites que o sistema impõe
-- Déficit calórico de no máximo 25% do gasto estimado e perda de no máximo 1% do peso por semana.
+- Uso restrito a adultos. Gestantes e lactantes não recebem déficit calórico nem avaliação de suplementos.
+- Déficit calórico de no máximo 25% do gasto estimado e perda de no máximo 1% do peso por semana; nenhum
+  déficit com IMC abaixo de 18,5.
 - Séries semanais por grupo muscular, dias de treino e HIIT limitados pelo seu nível.
-- Sintomas como dor no peito, tontura, falta de ar ou febre no check-in suspendem o treino do dia.
+- Sintomas como dor no peito, tontura, falta de ar ou febre no check-in suspendem o treino do dia. Dor no
+  peito, desmaio ou falta de ar intensa pedem atendimento de urgência (SAMU 192).
 - Suplementos: nenhuma sugestão a partir de dados do relógio; hormônios e estimulantes perigosos são recusados.
 
 ## O que o sistema não faz
