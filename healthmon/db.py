@@ -20,6 +20,10 @@ EXTRA_DAILY_COLUMNS = {
     "readiness_level": "TEXT",
     "steps_goal": "REAL",
     "stress_rest_seconds": "REAL",
+    "weight_kg": "REAL",
+    "body_fat_pct": "REAL",
+    "muscle_kg": "REAL",
+    "water_ml": "REAL",
 }
 
 SCHEMA = f"""
@@ -102,6 +106,65 @@ CREATE TABLE IF NOT EXISTS settings (
 """
 
 
+SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS body_measurements (
+    date TEXT PRIMARY KEY, weight_kg REAL, body_fat_pct REAL, muscle_kg REAL, waist_cm REAL,
+    source TEXT NOT NULL DEFAULT 'manual', note TEXT);
+CREATE TABLE IF NOT EXISTS foods (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, source TEXT NOT NULL,
+    kcal REAL, protein_g REAL, carb_g REAL, fat_g REAL, fiber_g REAL,   -- por 100 g
+    portion_g REAL, price_100g REAL, UNIQUE(name, source));
+CREATE VIRTUAL TABLE IF NOT EXISTS foods_fts USING fts5(name, tokenize='unicode61 remove_diacritics 2');
+CREATE TABLE IF NOT EXISTS meals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, time TEXT, description TEXT NOT NULL,
+    kcal REAL, protein_g REAL, carb_g REAL, fat_g REAL, fiber_g REAL,
+    method TEXT NOT NULL DEFAULT 'texto',       -- texto | alimentos | manual | foto | garmin
+    uncertainty_pct REAL, items TEXT, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_meals_date ON meals(date);
+CREATE TABLE IF NOT EXISTS checkins (
+    date TEXT PRIMARY KEY, perceived_recovery REAL, energy REAL, soreness REAL, mood REAL,
+    sleep_quality REAL, caffeine_mg REAL, caffeine_last_time TEXT, alcohol_units REAL,
+    water_ml REAL, symptoms TEXT, notes TEXT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS training_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL,
+    status TEXT NOT NULL,                       -- proposto | ativo | arquivado | recusado
+    reason TEXT, config TEXT NOT NULL, plan TEXT NOT NULL, confirmed_at TEXT);
+CREATE TABLE IF NOT EXISTS workout_sets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, session TEXT, exercise TEXT NOT NULL,
+    set_no INTEGER, reps REAL, load_kg REAL, rir REAL, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_sets_ex ON workout_sets(exercise, date);
+CREATE TABLE IF NOT EXISTS workout_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, session TEXT, kind TEXT,
+    duration_min REAL, rpe REAL, time_of_day TEXT, notes TEXT, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS labs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, lab TEXT, analyte TEXT NOT NULL,
+    analyte_key TEXT, value REAL, value_text TEXT, unit TEXT, ref_low REAL, ref_high REAL,
+    ref_text TEXT, source_file TEXT, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_labs ON labs(analyte_key, date);
+CREATE TABLE IF NOT EXISTS experiments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, factor TEXT NOT NULL,
+    condition_a TEXT NOT NULL, condition_b TEXT NOT NULL, outcome TEXT NOT NULL, lag_days INTEGER DEFAULT 0,
+    block_days INTEGER DEFAULT 1, start_date TEXT NOT NULL, planned_days INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ativo', seed INTEGER, notes TEXT, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS experiment_days (
+    experiment_id INTEGER NOT NULL, date TEXT NOT NULL, assigned TEXT NOT NULL,
+    followed INTEGER, confounders TEXT, PRIMARY KEY (experiment_id, date));
+CREATE TABLE IF NOT EXISTS decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, date TEXT NOT NULL,
+    area TEXT NOT NULL, title TEXT NOT NULL, detail TEXT, rationale TEXT, confidence TEXT,
+    refs TEXT, status TEXT NOT NULL DEFAULT 'pendente',   -- pendente | aceita | recusada | automatica
+    followed INTEGER, outcome TEXT, UNIQUE(date, area, title));
+CREATE TABLE IF NOT EXISTS job_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, job TEXT NOT NULL, started_at TEXT NOT NULL,
+    finished_at TEXT, status TEXT NOT NULL, detail TEXT);
+CREATE INDEX IF NOT EXISTS idx_jobs ON job_runs(job, started_at);
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS user_supplements (
+    key TEXT PRIMARY KEY, dose TEXT, since TEXT, status TEXT NOT NULL DEFAULT 'em_uso', notes TEXT);
+"""
+
+
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -112,6 +175,7 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.conn() as c:
             c.executescript(SCHEMA)
+            c.executescript(SCHEMA_V2)
             self._migrate(c)
         try:
             self.path.chmod(0o600)
@@ -137,6 +201,35 @@ class Database:
             c.commit()
         finally:
             c.close()
+
+    # --- acesso genérico (módulos da fase 2) ---------------------------
+    def q(self, sql: str, args: Iterable[Any] = ()) -> list[dict[str, Any]]:
+        with self.conn() as c:
+            return [dict(r) for r in c.execute(sql, tuple(args))]
+
+    def q1(self, sql: str, args: Iterable[Any] = ()) -> dict[str, Any] | None:
+        rows = self.q(sql, args)
+        return rows[0] if rows else None
+
+    def x(self, sql: str, args: Iterable[Any] = ()) -> int:
+        with self.conn() as c:
+            return c.execute(sql, tuple(args)).lastrowid
+
+    def insert(self, table: str, row: dict[str, Any], upsert_on: str | None = None) -> int:
+        cols = list(row)
+        sql = f"INSERT INTO {table}({','.join(cols)}) VALUES({','.join('?' for _ in cols)})"
+        if upsert_on:
+            keys = [k.strip() for k in upsert_on.split(",")]
+            upd = ",".join(f"{k}=excluded.{k}" for k in cols if k not in keys)
+            sql += f" ON CONFLICT({upsert_on}) DO UPDATE SET {upd}" if upd else f" ON CONFLICT({upsert_on}) DO NOTHING"
+        return self.x(sql, [row[k] for k in cols])
+
+    def get_json(self, key: str, default: Any = None) -> Any:
+        v = self.get_setting(key)
+        return json.loads(v) if v else default
+
+    def set_json(self, key: str, value: Any) -> None:
+        self.set_setting(key, json.dumps(value, ensure_ascii=False))
 
     # --- settings ------------------------------------------------------
     def get_setting(self, key: str, default: str | None = None) -> str | None:
@@ -285,7 +378,7 @@ class Database:
 
     def count_notified_since(self, iso: str) -> int:
         with self.conn() as c:
-            return c.execute("SELECT COUNT(*) FROM alerts WHERE notified_at>=? AND kind!='falha_sincronizacao'",
+            return c.execute("SELECT COUNT(*) FROM alerts WHERE notified_at>=? AND kind!='falha_sincronizacao' AND kind NOT LIKE 'chave_garmin%'",
                              (iso,)).fetchone()[0]
 
     def ack_alert(self, aid: int) -> None:

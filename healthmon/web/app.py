@@ -41,6 +41,12 @@ def create_app(cfg: Config, db: Database, sync_fn: Callable[[], Any] | None = No
             return RedirectResponse("/login", status_code=303)
         if request.method not in ("GET", "HEAD") and request.headers.get("x-hm") != "1":
             return JSONResponse({"erro": "requisição recusada"}, status_code=403)
+        limit = 16 * 1024 * 1024 if path == "/api/exames/arquivo" else 64 * 1024
+        try:
+            if int(request.headers.get("content-length") or 0) > limit:
+                return JSONResponse({"erro": "corpo da requisição grande demais"}, status_code=413)
+        except ValueError:
+            return JSONResponse({"erro": "content-length inválido"}, status_code=400)
         resp = await call_next(request)
         resp.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
@@ -239,4 +245,6 @@ def create_app(cfg: Config, db: Database, sync_fn: Callable[[], Any] | None = No
         threading.Thread(target=run, daemon=True).start()
         return {"ok": True, "mensagem": "Sincronização iniciada."}
 
+    from .api2 import register
+    register(app, cfg, db, ref_day)
     return app

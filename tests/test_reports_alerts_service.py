@@ -117,7 +117,7 @@ def test_strip_identifiers():
 
 def test_minimal_notifications_hide_health_data(cfg, demo_db, monkeypatch):
     sent = []
-    monkeypatch.setattr(notify, "send", lambda c, s, t: sent.append((s, t)) or ["telegram"])
+    monkeypatch.setattr(notify, "send", lambda c, s, t, db=None: sent.append((s, t)) or ["telegram"])
     cfg.data["notificacoes"]["canais"] = ["telegram"]
     notify.notify_report(cfg, "diário", "Relatório diário", "HRV 40 ms · sono 5h")
     assert "HRV" not in sent[-1][0] + sent[-1][1]

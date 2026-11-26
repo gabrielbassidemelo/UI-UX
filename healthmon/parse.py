@@ -72,9 +72,58 @@ def _ts_local(v: Any) -> str | None:
     return datetime.fromtimestamp(f / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M")
 
 
+def find_dict(obj: Any, keys: tuple[str, ...], depth: int = 0) -> dict | None:
+    """Primeiro dicionário (em qualquer nível) que contém alguma das chaves indicadas."""
+    if depth > 5:
+        return None
+    if isinstance(obj, dict):
+        if any(k in obj for k in keys):
+            return obj
+        for v in obj.values():
+            r = find_dict(v, keys, depth + 1)
+            if r:
+                return r
+    elif isinstance(obj, list):
+        for v in obj[:60]:
+            r = find_dict(v, keys, depth + 1)
+            if r:
+                return r
+    return None
+
+
+def parse_official_extras(raw: dict[str, Any]) -> dict[str, Any]:
+    """Campos vindos dos endpoints da Personal API oficial (formato lido defensivamente)."""
+    out: dict[str, Any] = {}
+    hr = find_dict(raw.get("heart_rate"), ("restingHeartRate", "minHeartRate")) or {}
+    out["resting_hr"] = num(hr.get("restingHeartRate"))
+    out["min_hr"] = num(hr.get("minHeartRate"))
+    out["max_hr"] = num(hr.get("maxHeartRate"))
+    bb = find_dict(raw.get("body_battery"), ("charged", "drained", "bodyBatteryValuesArray")) or {}
+    out["bb_charged"], out["bb_drained"] = num(bb.get("charged")), num(bb.get("drained"))
+    vals = [num(v[-1]) for v in (bb.get("bodyBatteryValuesArray") or [])
+            if isinstance(v, (list, tuple)) and v and num(v[-1]) is not None]
+    if vals:
+        out["bb_max"], out["bb_min"] = max(vals), min(vals)
+    st = find_dict(raw.get("stress"), ("overallStressLevel", "averageStressLevel", "avgStressLevel")) or {}
+    out["stress_avg"] = num(pick(st, "overallStressLevel", "averageStressLevel", "avgStressLevel"))
+    out["stress_high_seconds"] = num(st.get("highStressDuration"))
+    w = find_dict(raw.get("weight"), ("weight",)) or {}
+    wv = num(w.get("weight"))
+    if wv:
+        out["weight_kg"] = round(wv / 1000, 2) if wv > 500 else wv   # Garmin Connect usa gramas
+        out["body_fat_pct"] = num(w.get("bodyFat"))
+        mm = num(w.get("muscleMass"))
+        out["muscle_kg"] = (round(mm / 1000, 2) if mm and mm > 500 else mm)
+    hy = find_dict(raw.get("hydration"), ("valueInML",)) or {}
+    out["water_ml"] = num(hy.get("valueInML"))
+    return {k: v for k, v in out.items() if v is not None}
+
+
 def parse_day(raw: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
-    s = raw.get("user_summary") or {}
+    official = "daily_summary" in raw or "heart_rate" in raw
+    s = raw.get("user_summary") or find_dict(
+        raw.get("daily_summary"), ("totalSteps", "totalKilocalories", "restingHeartRate")) or {}
     out.update({
         "resting_hr": num(pick(s, "restingHeartRate")),
         "min_hr": num(pick(s, "minHeartRate")),
@@ -102,7 +151,9 @@ def parse_day(raw: dict[str, Any]) -> dict[str, Any]:
         out["intensity_minutes"] = (mod or 0) + 2 * (vig or 0)
 
     sl = raw.get("sleep") or {}
-    dto = sl.get("dailySleepDTO") or {}
+    if not isinstance(sl, dict):
+        sl = {"dailySleepDTO": find_dict(sl, ("sleepTimeSeconds",)) or {}}
+    dto = sl.get("dailySleepDTO") or (sl if "sleepTimeSeconds" in sl else {})
     if dto and num(dto.get("sleepTimeSeconds")):
         out.update({
             "sleep_seconds": num(dto.get("sleepTimeSeconds")),
@@ -129,7 +180,7 @@ def parse_day(raw: dict[str, Any]) -> dict[str, Any]:
         if num(sl.get("avgOvernightHrv")):
             out["hrv_last_night"] = num(sl.get("avgOvernightHrv"))
 
-    hrv = (raw.get("hrv") or {}).get("hrvSummary") or {}
+    hrv = find_dict(raw.get("hrv"), ("lastNightAvg", "weeklyAvg")) or {}
     if hrv:
         out["hrv_last_night"] = num(hrv.get("lastNightAvg")) or out.get("hrv_last_night")
         out["hrv_weekly_avg"] = num(hrv.get("weeklyAvg"))
@@ -162,13 +213,13 @@ def parse_day(raw: dict[str, Any]) -> dict[str, Any]:
     if out.get("sleep_spo2_avg") is None:
         out["sleep_spo2_avg"] = num(spo2.get("avgSleepSpO2"))
 
-    mm = raw.get("max_metrics")
-    if isinstance(mm, list) and mm:
-        mm = mm[0]
-    if isinstance(mm, dict):
-        out["vo2max"] = num(pick(mm, "generic.vo2MaxPreciseValue", "generic.vo2MaxValue"))
+    mm = find_dict(raw.get("max_metrics"), ("vo2MaxPreciseValue", "vo2MaxValue"))
+    if mm:
+        out["vo2max"] = num(pick(mm, "vo2MaxPreciseValue", "vo2MaxValue"))
 
     acts = raw.get("activities")
+    if isinstance(acts, dict):   # alguns endpoints embrulham a lista
+        acts = next((v for v in acts.values() if isinstance(v, list)), [])
     if "activities" in raw and acts is None:
         acts = []
     if isinstance(acts, list):
@@ -177,6 +228,10 @@ def parse_day(raw: dict[str, Any]) -> dict[str, Any]:
         known = [x for x in loads if x is not None]
         out["training_load"] = round(sum(known), 1) if known else (0.0 if not acts else None)
 
+    if official:
+        for k, v in parse_official_extras(raw).items():
+            if out.get(k) is None:
+                out[k] = v
     for k in NONNEG:
         if out.get(k) is not None and out[k] < 0:
             out[k] = None  # Garmin usa -1/-2 como "sem dado"

@@ -53,11 +53,16 @@ def send_email(cfg: Config, subject: str, text: str) -> None:
         s.send_message(msg)
 
 
-def send(cfg: Config, subject: str, text: str) -> list[str]:
+def send(cfg: Config, subject: str, text: str, db: Database | None = None) -> list[str]:
     sent = []
     for ch in cfg.get("notificacoes", "canais", []) or []:
         try:
-            if ch == "telegram":
+            if ch == "push":
+                if db is None:
+                    continue
+                from .push import send_push
+                send_push(cfg, db, subject, text.split("\n")[0][:160])
+            elif ch == "telegram":
                 send_telegram(cfg, f"{subject}\n\n{text}")
             elif ch == "email":
                 send_email(cfg, subject, text)
@@ -74,13 +79,13 @@ def _link(cfg: Config) -> str:
     return f"\n{url}" if url else ""
 
 
-def notify_report(cfg: Config, kind: str, title: str, summary: str) -> list[str]:
+def notify_report(cfg: Config, kind: str, title: str, summary: str, db: Database | None = None) -> list[str]:
     if cfg.get("notificacoes", "nivel_conteudo", "minimo") == "completo":
         body = summary
     else:
         body = "Seu relatório está disponível no dashboard."
     return send(cfg, title if cfg.get("notificacoes", "nivel_conteudo") == "completo"
-                else f"healthmon: relatório {kind}", body + _link(cfg))
+                else f"healthmon: relatório {kind}", body + _link(cfg), db)
 
 
 def dispatch_alerts(cfg: Config, db: Database, now: datetime | None = None) -> int:
@@ -95,12 +100,12 @@ def dispatch_alerts(cfg: Config, db: Database, now: datetime | None = None) -> i
     sent_count = 0
     full = cfg.get("notificacoes", "nivel_conteudo", "minimo") == "completo"
     for a in db.pending_alerts():
-        is_sync = a["kind"] == "falha_sincronizacao"
+        is_sync = a["kind"] == "falha_sincronizacao" or a["kind"].startswith("chave_garmin")
         if not is_sync and db.count_notified_since(since) >= limit:
             break
         body = a["message"] if (full or is_sync) else "Há um novo alerta no dashboard."
         subject = f"healthmon: {a['title']}" if (full or is_sync) else "healthmon: novo alerta"
-        if send(cfg, subject, body + _link(cfg)):
+        if send(cfg, subject, body + _link(cfg), db):
             db.mark_alert_notified(a["id"])
             sent_count += 1
     return sent_count

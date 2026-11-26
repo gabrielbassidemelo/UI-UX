@@ -5,6 +5,18 @@
 fuso_horario = "America/Sao_Paulo"
 peso_kg = 88.0
 
+[garmin]
+# "oficial" = Garmin Connect Personal API (padrão; chave em secrets.env: GARMIN_PERSONAL_API_KEY)
+# "nao_oficial" = biblioteca garminconnect (DESATIVADA por padrão; exige pip install "healthmon[nao-oficial]")
+fonte = "oficial"
+# Data de expiração da chave pessoal (AAAA-MM-DD), a mesma escolhida ao criar a chave.
+# Gera alertas 14 e 3 dias antes. A Garmin também avisa por e-mail ~1 semana antes.
+chave_expira_em = ""
+# A Garmin não publica limites; valores conservadores e ajustáveis:
+max_requisicoes_dia = 600
+retentativas = 4
+pausa_apos_429_min = 60
+
 [coleta]
 # Intervalo de sincronização automática (minutos) entre 05h e 23h.
 intervalo_min = 120
@@ -40,7 +52,7 @@ ollama_modelo = "qwen2.5:7b-instruct"
 nuvem_modelo = "claude-opus-5-5"
 
 [notificacoes]
-# Canais: "telegram", "email". Lista vazia = nenhuma notificação externa.
+# Canais: "push" (PWA no iPhone, recomendado), "telegram", "email". Lista vazia = nenhuma.
 canais = []
 # "minimo": a mensagem só avisa que há relatório/alerta, sem números de saúde.
 # "completo": inclui o resumo do relatório (dados de saúde passam pelo Telegram/e-mail).
@@ -53,6 +65,8 @@ silencio_fim = "07:00"
 # Limites anti-excesso
 max_alertas_dia = 2
 cooldown_horas = 72
+# Contato exigido pelo protocolo Web Push (mailto:voce@exemplo.com); não recebe dados de saúde.
+push_contato = ""
 email_de = ""
 email_para = ""
 smtp_host = ""
@@ -80,3 +94,9 @@ diretorio = ""          # vazio = $HEALTHMON_HOME/backups
 manter_diarios = 14
 manter_semanais = 8
 hora = "03:30"
+
+[retencao]
+# JSON brutos da Garmin mais antigos que isto são apagados (os indicadores diários derivados ficam).
+brutos_dias = 400
+# Histórico de execuções das tarefas.
+execucoes_dias = 90

@@ -62,6 +62,22 @@ def main(argv: list[str] | None = None) -> int:
     ia = sub.add_parser("ia-nuvem", help="consentimento para IA em nuvem")
     ia.add_argument("acao", choices=["previa", "consentir", "revogar", "status"])
     sub.add_parser("testar-notificacao", help="envia mensagem de teste pelos canais configurados")
+    sub.add_parser("validar-garmin", help="testa a API oficial e mostra a ESTRUTURA das respostas (sem valores)")
+    kbp = sub.add_parser("kb", help="base científica: verificar referências no Crossref ou buscar")
+    kbp.add_argument("acao", choices=["verificar", "buscar", "listar"])
+    kbp.add_argument("termo", nargs="?")
+    al = sub.add_parser("alimentos", help="base de alimentos: baixar-taco | importar ARQUIVO --fonte NOME")
+    al.add_argument("acao", choices=["baixar-taco", "importar", "contar"])
+    al.add_argument("arquivo", nargs="?")
+    al.add_argument("--fonte", default="CSV")
+    al.add_argument("--url")
+    ex = sub.add_parser("exames", help="importa exames de um CSV (data,analito,valor,unidade,ref_min,ref_max,laboratorio)")
+    ex.add_argument("arquivo")
+    sub.add_parser("plano", help="mostra o plano do dia")
+    xp = sub.add_parser("exportar", help="exporta TODOS os seus dados para um arquivo JSON (portabilidade)")
+    xp.add_argument("destino")
+    dl = sub.add_parser("apagar-dados", help="apaga definitivamente banco, tokens, relatórios, exames e backups")
+    dl.add_argument("--confirmar", action="store_true")
     args = ap.parse_args(argv)
 
     if args.cmd == "init":
@@ -76,6 +92,11 @@ def main(argv: list[str] | None = None) -> int:
     db = Database(cfg.db_path)
 
     if args.cmd == "login":
+        if cfg.get("garmin", "fonte", "oficial") != "nao_oficial":
+            print("A fonte padrão é a API oficial da Garmin, que não usa login com senha.\n"
+                  "Gere a chave em https://connect.garmin.com/app/settings/personalApiToken e grave em\n"
+                  f"{cfg.home / 'secrets.env'} como GARMIN_PERSONAL_API_KEY=...  Depois: healthmon validar-garmin")
+            return 1
         from .garmin import GarminConnectSource
         GarminConnectSource(cfg).interactive_login(args.email)
         print(f"Login concluído. Tokens salvos em {cfg.token_dir} (permissão 600). A senha não foi armazenada.")
@@ -84,11 +105,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd in ("sync", "historico"):
         from .service import Service
         from .sync import recent_days
-        n = args.dias if args.cmd == "historico" else args.dias
+        n = args.dias
+        svc = Service(cfg, db)
         days = recent_days(cfg, n) if n else None
         if args.cmd == "historico":
-            print(f"Importando {n} dias (com pausas para respeitar a Garmin; pode levar alguns minutos)…")
-        res = Service(cfg, db).sync(days)
+            days = svc.pending_days(n)
+            print(f"Importando {len(days)} de {n} dias (os demais já estão gravados). Há pausas e orçamento diário de "
+                  "requisições; se o limite for atingido, repita o comando depois: ele continua de onde parou.")
+        res = svc.sync(days)
         print(json.dumps({k: v for k, v in res.items() if k != "dias"}, ensure_ascii=False),
               f"— {len(res.get('dias', {}))} dia(s) processado(s)")
         return 0 if res["status"] != "erro" else 1
@@ -168,6 +192,8 @@ def main(argv: list[str] | None = None) -> int:
             service.schedule(sched)
             sched.start()
             sync_fn = service.sync
+            import threading
+            threading.Thread(target=service.catch_up, daemon=True).start()
             logging.info("Agendador iniciado: %s", ", ".join(j.id for j in sched.get_jobs()))
         app = create_app(cfg, db, sync_fn)
         try:
@@ -190,8 +216,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "demo":
-        from .demo import populate
+        from .demo import populate, populate_phase2
         populate(db, args.dias)
+        populate_phase2(db, cfg, min(args.dias, 60))
         print(f"{args.dias} dias SIMULADOS gravados em {cfg.db_path}.")
         return 0
 
@@ -226,7 +253,97 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "testar-notificacao":
         from .notify import send
-        print("Enviado por:", send(cfg, "healthmon: teste", "Notificação de teste (sem dados de saúde).") or "nenhum canal")
+        print("Enviado por:", send(cfg, "healthmon: teste", "Notificação de teste (sem dados de saúde).", db) or "nenhum canal")
+        return 0
+
+    if args.cmd == "validar-garmin":
+        from .garmin_official import ENDPOINTS, PersonalApiSource, key_expiry_status, shape
+        from .parse import parse_day
+        from .sync import today_local
+        from .db import utcnow
+        src = PersonalApiSource(cfg, db)
+        day = (today_local(cfg) - timedelta(days=1)).isoformat()
+        print(f"Validando a Garmin Personal API com os dados de {day}. Abaixo aparecem apenas nomes de campos e tipos.\n")
+        try:
+            fetched = src.fetch_day(day)
+        except Exception as e:  # noqa: BLE001
+            print(f"FALHA: {type(e).__name__}: {e}")
+            return 1
+        ok = 0
+        for name in ENDPOINTS:
+            status, payload = fetched[name]
+            ok += status in ("ok", "vazio")
+            print(f"== {name}: {status}")
+            if status == "ok":
+                print("   ", json.dumps(shape(payload), ensure_ascii=False)[:1500])
+                db.save_raw(day, name, status, payload)
+        values = parse_day({k: v for k, (st, v) in fetched.items() if st == "ok"})
+        print(f"\n{ok}/{len(ENDPOINTS)} endpoints responderam. Indicadores reconhecidos pelo parser ({len(values)}):")
+        print("  ", ", ".join(sorted(values)) or "nenhum")
+        print("Validade da chave:", key_expiry_status(cfg))
+        if ok and values:
+            db.set_setting("garmin_validado_em", utcnow())
+            db.set_setting("data_source", "garmin")
+            print("\nIntegração real validada. Se algum indicador esperado não foi reconhecido, envie ESTA saída "
+                  "(não contém valores de saúde) para ajuste do parser.")
+        return 0 if ok else 1
+
+    if args.cmd == "kb":
+        from . import kb
+        if args.acao == "verificar":
+            print(json.dumps(kb.verify(cfg), ensure_ascii=False, indent=1))
+        elif args.acao == "buscar":
+            for r in kb.search(args.termo or "", 6, cfg):
+                print(f"- [{r['grau']}] {r['referencia']} {r['url'] or ''}")
+        else:
+            for r in kb.cite(list(kb.entries(cfg)), cfg):
+                print(f"- {'✓' if r['verificado'] else '?'} {r['referencia']}")
+        return 0
+
+    if args.cmd == "alimentos":
+        from . import nutrition
+        if args.acao == "baixar-taco":
+            print(nutrition.download_taco(db, args.url or nutrition.TACO_URL), "(fonte: TACO, NEPA/UNICAMP)")
+        elif args.acao == "importar":
+            print(nutrition.import_foods_csv(db, Path(args.arquivo), args.fonte))
+        else:
+            print(db.q("SELECT source, COUNT(*) n FROM foods GROUP BY source"))
+        return 0
+
+    if args.cmd == "exames":
+        from . import labs
+        print(f"{labs.import_csv(db, Path(args.arquivo))} resultado(s) importado(s).")
+        return 0
+
+    if args.cmd == "plano":
+        from . import planner
+        from .sync import today_local
+        for i in planner.daily_plan(db, cfg, today_local(cfg))["itens"]:
+            print(f"\n{i['pergunta']}\n  → {i['o_que_fazer']}\n  Por quê: {i['por_que']}\n  Confiança: {i['confianca']}")
+        return 0
+
+    if args.cmd == "exportar":
+        from .config import write_private_file
+        tables = ["daily_metrics", "activities", "reports", "alerts", "body_measurements", "meals", "checkins",
+                  "training_plans", "workout_sets", "workout_sessions", "labs", "experiments", "experiment_days",
+                  "decisions", "user_supplements", "raw_payloads"]
+        dump = {t: db.q(f"SELECT * FROM {t}") for t in tables}
+        dump["perfil"], dump["objetivos"] = db.get_json("perfil", {}), db.get_json("objetivos", [])
+        write_private_file(Path(args.destino), json.dumps(dump, ensure_ascii=False))
+        print(f"Exportado para {args.destino} (permissão 600). O arquivo NÃO é criptografado: guarde com cuidado.")
+        return 0
+
+    if args.cmd == "apagar-dados":
+        import shutil
+        if not args.confirmar or input('Isto apaga TUDO de forma irreversível. Digite APAGAR: ').strip() != "APAGAR":
+            print("Nada foi apagado. Use --confirmar e digite APAGAR.")
+            return 1
+        for name in ("healthmon.db", "healthmon.db-wal", "healthmon.db-shm", "dashboard_auth.json", "vapid.json",
+                     "kb_verificacao.json", "consentimento_ia_nuvem.json", "healthmon.log"):
+            (cfg.home / name).unlink(missing_ok=True)
+        for d in ("tokens", "relatorios", "exames", "backups"):
+            shutil.rmtree(cfg.home / d, ignore_errors=True)
+        print("Dados apagados. Para encerrar o acesso à Garmin, revogue a chave pessoal no site da Garmin.")
         return 0
     return 1
 

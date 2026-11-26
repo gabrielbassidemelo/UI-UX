@@ -24,7 +24,10 @@ def process_day(db: Database, day: str) -> dict[str, Any]:
     values = parse_day(raw)
     if values:
         db.upsert_daily(day, values)
-    for a in raw.get("activities") or []:
+    acts = raw.get("activities") or []
+    if isinstance(acts, dict):
+        acts = next((v for v in acts.values() if isinstance(v, list)), [])
+    for a in acts:
         if isinstance(a, dict):
             pa = parse_activity(a)
             if pa:
@@ -49,6 +52,8 @@ def sync_days(cfg: Config, db: Database, source: GarminSource, days: list[str],
                 except AuthRequired:
                     raise
                 except Exception as e:  # noqa: BLE001
+                    if type(e).__name__ in ("RateLimited", "BudgetExceeded"):
+                        raise                       # não insistir contra limite de requisições
                     attempt += 1
                     if attempt > retries:
                         raise

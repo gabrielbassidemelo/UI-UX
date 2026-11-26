@@ -1,0 +1,1144 @@
+{
+ "versao": "2026.11",
+ "nota": "Referências redigidas durante o desenvolvimento sem acesso ao PubMed/Crossref. O campo 'verificado' só passa a verdadeiro após `healthmon kb verificar` conferir título e ano de cada DOI.",
+ "evidencias": [
+  {
+   "chave": "mifflin1990",
+   "titulo": "A new predictive equation for resting energy expenditure in healthy individuals",
+   "autores": "Mifflin MD, St Jeor ST, Hill LA, Scott BJ, Daugherty SA, Koh YO",
+   "ano": 1990,
+   "periodico": "Am J Clin Nutr 51(2):241-247",
+   "doi": "10.1093/ajcn/51.2.241",
+   "pmid": null,
+   "tipo": "estudo de derivação",
+   "populacao": "498 adultos saudáveis, com e sem obesidade",
+   "resultados": "Equação de gasto de repouso a partir de peso, altura, idade e sexo.",
+   "limitacoes": "Erro individual relevante; amostra norte-americana.",
+   "grau": "moderada",
+   "temas": [
+    "metabolismo",
+    "tmb"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "frankenfield2005",
+   "titulo": "Comparison of predictive equations for resting metabolic rate in healthy nonobese and obese adults: a systematic review",
+   "autores": "Frankenfield D, Roth-Yousey L, Compher C",
+   "ano": 2005,
+   "periodico": "J Am Diet Assoc 105(5):775-789",
+   "doi": "10.1016/j.jada.2005.02.005",
+   "pmid": null,
+   "tipo": "revisão sistemática",
+   "populacao": "Adultos com e sem obesidade",
+   "resultados": "Mifflin-St Jeor foi a equação que mais vezes previu o gasto de repouso dentro de ±10% do medido.",
+   "limitacoes": "Mesmo a melhor equação erra mais de 10% em parte das pessoas; grupos étnicos e idosos pouco representados.",
+   "grau": "forte",
+   "temas": [
+    "metabolismo",
+    "tmb"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "cunningham1980",
+   "titulo": "A reanalysis of the factors influencing basal metabolic rate in normal adults",
+   "autores": "Cunningham JJ",
+   "ano": 1980,
+   "periodico": "Am J Clin Nutr 33(11):2372-2374",
+   "doi": "10.1093/ajcn/33.11.2372",
+   "pmid": null,
+   "tipo": "reanálise",
+   "populacao": "Adultos saudáveis (dados de Harris-Benedict)",
+   "resultados": "Massa magra explica a maior parte da variação da taxa metabólica basal; equação baseada em massa livre de gordura.",
+   "limitacoes": "Depende de medida confiável de composição corporal; derivada em amostra antiga.",
+   "grau": "moderada",
+   "temas": [
+    "metabolismo",
+    "tmb"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "hall2008",
+   "titulo": "What is the required energy deficit per unit weight loss?",
+   "autores": "Hall KD",
+   "ano": 2008,
+   "periodico": "Int J Obes 32(3):573-576",
+   "doi": "10.1038/sj.ijo.0803720",
+   "pmid": null,
+   "tipo": "análise teórica com dados experimentais",
+   "populacao": "Adultos em perda de peso",
+   "resultados": "O déficit por kg perdido não é constante: depende da composição da perda (gordura ≈ 39,5 MJ/kg; massa magra ≈ 7,6 MJ/kg) e da gordura corporal inicial.",
+   "limitacoes": "Modelo; variação individual.",
+   "grau": "moderada",
+   "temas": [
+    "metabolismo",
+    "balanco"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "hall2011",
+   "titulo": "Quantification of the effect of energy imbalance on bodyweight",
+   "autores": "Hall KD, Sacks G, Chandramohan D, et al.",
+   "ano": 2011,
+   "periodico": "Lancet 378(9793):826-837",
+   "doi": "10.1016/S0140-6736(11)60812-X",
+   "pmid": null,
+   "tipo": "modelagem validada",
+   "populacao": "Adultos",
+   "resultados": "A regra estática de 3.500 kcal/libra superestima a perda; o gasto cai à medida que o peso cai e o novo equilíbrio leva meses a anos.",
+   "limitacoes": "Modelo populacional; parâmetros individuais variam.",
+   "grau": "forte",
+   "temas": [
+    "metabolismo",
+    "balanco"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "forbes2000",
+   "titulo": "Body fat content influences the body composition response to nutrition and exercise",
+   "autores": "Forbes GB",
+   "ano": 2000,
+   "periodico": "Ann N Y Acad Sci 904:359-365",
+   "doi": "10.1111/j.1749-6632.2000.tb06482.x",
+   "pmid": null,
+   "tipo": "revisão",
+   "populacao": "Adultos",
+   "resultados": "A fração de massa magra na variação de peso é maior em pessoas com menos gordura corporal.",
+   "limitacoes": "Relação empírica; não considera treino de força nem proteína alta.",
+   "grau": "moderada",
+   "temas": [
+    "metabolismo",
+    "composicao"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "hall2007",
+   "titulo": "Body fat and fat-free mass inter-relationships: Forbes's theory revisited",
+   "autores": "Hall KD",
+   "ano": 2007,
+   "periodico": "Br J Nutr 97(6):1059-1063",
+   "doi": "10.1017/S0007114507691946",
+   "pmid": null,
+   "tipo": "análise teórica",
+   "populacao": "Adultos",
+   "resultados": "Reformula a relação de Forbes para variações grandes de peso.",
+   "limitacoes": "Teórico.",
+   "grau": "moderada",
+   "temas": [
+    "metabolismo",
+    "composicao"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "lichtman1992",
+   "titulo": "Discrepancy between self-reported and actual caloric intake and exercise in obese subjects",
+   "autores": "Lichtman SW, Pisarska K, Berman ER, et al.",
+   "ano": 1992,
+   "periodico": "N Engl J Med 327(27):1893-1898",
+   "doi": "10.1056/NEJM199212313272701",
+   "pmid": null,
+   "tipo": "estudo com água duplamente marcada",
+   "populacao": "Adultos com obesidade e dificuldade de emagrecer",
+   "resultados": "Sub-registro médio de ~47% da ingestão e super-registro de ~51% da atividade; gasto energético normal.",
+   "limitacoes": "Amostra pequena e selecionada.",
+   "grau": "moderada",
+   "temas": [
+    "nutricao",
+    "registro",
+    "metabolismo"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "shcherbina2017",
+   "titulo": "Accuracy in wrist-worn, sensor-based measurements of heart rate and energy expenditure in a diverse cohort",
+   "autores": "Shcherbina A, Mattsson CM, Waggott D, et al.",
+   "ano": 2017,
+   "periodico": "J Pers Med 7(2):3",
+   "doi": "10.3390/jpm7020003",
+   "pmid": null,
+   "tipo": "estudo de validação",
+   "populacao": "60 adultos, 7 dispositivos de pulso",
+   "resultados": "Frequência cardíaca com erro baixo na maioria; nenhum dispositivo estimou gasto energético com erro abaixo de 20%.",
+   "limitacoes": "Dispositivos de 2016; não inclui a CIRQA.",
+   "grau": "moderada",
+   "temas": [
+    "vestiveis",
+    "metabolismo"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "rosenbaum2010",
+   "titulo": "Adaptive thermogenesis in humans",
+   "autores": "Rosenbaum M, Leibel RL",
+   "ano": 2010,
+   "periodico": "Int J Obes 34(Suppl 1):S47-S55",
+   "doi": "10.1038/ijo.2010.184",
+   "pmid": null,
+   "tipo": "revisão",
+   "populacao": "Adultos após perda de peso",
+   "resultados": "Após perda de ≥10% do peso, o gasto energético pode ficar abaixo do previsto pela nova composição corporal.",
+   "limitacoes": "Magnitude debatida; medições exigem calorimetria.",
+   "grau": "moderada",
+   "temas": [
+    "metabolismo",
+    "adaptacao"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "tudorlocke2004",
+   "titulo": "How many steps/day are enough? Preliminary pedometer indices for public health",
+   "autores": "Tudor-Locke C, Bassett DR Jr",
+   "ano": 2004,
+   "periodico": "Sports Med 34(1):1-8",
+   "doi": "10.2165/00007256-200434010-00001",
+   "pmid": null,
+   "tipo": "revisão",
+   "populacao": "Adultos",
+   "resultados": "Classificação preliminar de atividade por passos/dia (<5.000 sedentário; ≥10.000 ativo).",
+   "limitacoes": "Índices preliminares; não medem intensidade.",
+   "grau": "limitada",
+   "temas": [
+    "atividade"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "levine2002",
+   "titulo": "Non-exercise activity thermogenesis (NEAT)",
+   "autores": "Levine JA",
+   "ano": 2002,
+   "periodico": "Best Pract Res Clin Endocrinol Metab 16(4):679-702",
+   "doi": "10.1053/beem.2002.0227",
+   "pmid": null,
+   "tipo": "revisão",
+   "populacao": "Adultos",
+   "resultados": "O gasto com atividades do dia a dia fora do exercício varia muito entre pessoas e é modificável.",
+   "limitacoes": "Revisão narrativa.",
+   "grau": "moderada",
+   "temas": [
+    "metabolismo",
+    "atividade"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "bull2020",
+   "titulo": "World Health Organization 2020 guidelines on physical activity and sedentary behaviour",
+   "autores": "Bull FC, Al-Ansari SS, Biddle S, et al.",
+   "ano": 2020,
+   "periodico": "Br J Sports Med 54(24):1451-1462",
+   "doi": "10.1136/bjsports-2020-102955",
+   "pmid": null,
+   "tipo": "diretriz (OMS)",
+   "populacao": "Adultos e demais grupos",
+   "resultados": "Adultos: 150–300 min/semana de atividade aeróbica moderada ou 75–150 min vigorosa, mais fortalecimento muscular em 2 ou mais dias.",
+   "limitacoes": "Recomendações populacionais.",
+   "grau": "forte",
+   "temas": [
+    "treino",
+    "atividade",
+    "saude"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "garber2011",
+   "titulo": "Quantity and quality of exercise for developing and maintaining cardiorespiratory, musculoskeletal, and neuromotor fitness in apparently healthy adults",
+   "autores": "Garber CE, Blissmer B, Deschenes MR, et al. (ACSM)",
+   "ano": 2011,
+   "periodico": "Med Sci Sports Exerc 43(7):1334-1359",
+   "doi": "10.1249/MSS.0b013e318213fefb",
+   "pmid": null,
+   "tipo": "posicionamento (ACSM)",
+   "populacao": "Adultos aparentemente saudáveis",
+   "resultados": "Prescrição de exercício aeróbico, de força, flexibilidade e neuromotor; intensidade por reserva de frequência cardíaca.",
+   "limitacoes": "Posicionamento de 2011.",
+   "grau": "forte",
+   "temas": [
+    "treino",
+    "cardio"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "acsm2009",
+   "titulo": "Progression models in resistance training for healthy adults",
+   "autores": "American College of Sports Medicine",
+   "ano": 2009,
+   "periodico": "Med Sci Sports Exerc 41(3):687-708",
+   "doi": "10.1249/MSS.0b013e3181915670",
+   "pmid": null,
+   "tipo": "posicionamento (ACSM)",
+   "populacao": "Adultos saudáveis",
+   "resultados": "Modelos de progressão de carga, volume e frequência conforme o nível de treino; periodização para intermediários e avançados.",
+   "limitacoes": "Parte das recomendações tem evidência limitada e foi criticada.",
+   "grau": "moderada",
+   "temas": [
+    "treino",
+    "forca",
+    "progressao"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "schoenfeld2017volume",
+   "titulo": "Dose-response relationship between weekly resistance training volume and increases in muscle mass: a systematic review and meta-analysis",
+   "autores": "Schoenfeld BJ, Ogborn D, Krieger JW",
+   "ano": 2017,
+   "periodico": "J Sports Sci 35(11):1073-1082",
+   "doi": "10.1080/02640414.2016.1210197",
+   "pmid": null,
+   "tipo": "meta-análise",
+   "populacao": "Adultos em treino de força",
+   "resultados": "Relação dose-resposta entre séries semanais e hipertrofia; 10 ou mais séries por grupo muscular por semana produziram os maiores ganhos.",
+   "limitacoes": "Poucos estudos com volumes altos; maioria com iniciantes.",
+   "grau": "moderada",
+   "temas": [
+    "treino",
+    "hipertrofia",
+    "volume"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "schoenfeld2016freq",
+   "titulo": "Effects of resistance training frequency on measures of muscle hypertrophy: a systematic review and meta-analysis",
+   "autores": "Schoenfeld BJ, Ogborn D, Krieger JW",
+   "ano": 2016,
+   "periodico": "Sports Med 46(11):1689-1697",
+   "doi": "10.1007/s40279-016-0543-8",
+   "pmid": null,
+   "tipo": "meta-análise",
+   "populacao": "Adultos em treino de força",
+   "resultados": "Treinar cada grupo muscular 2 vezes por semana gerou mais hipertrofia que 1 vez, com volume equiparado.",
+   "limitacoes": "Poucos estudos; não define se 3 vezes supera 2.",
+   "grau": "moderada",
+   "temas": [
+    "treino",
+    "hipertrofia",
+    "frequencia"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "schoenfeld2017load",
+   "titulo": "Strength and hypertrophy adaptations between low- vs. high-load resistance training: a systematic review and meta-analysis",
+   "autores": "Schoenfeld BJ, Grgic J, Ogborn D, Krieger JW",
+   "ano": 2017,
+   "periodico": "J Strength Cond Res 31(12):3508-3523",
+   "doi": "10.1519/JSC.0000000000002200",
+   "pmid": null,
+   "tipo": "meta-análise",
+   "populacao": "Adultos",
+   "resultados": "Hipertrofia semelhante com cargas baixas ou altas quando as séries chegam perto da falha; força máxima favorece cargas altas.",
+   "limitacoes": "Estudos de curta duração.",
+   "grau": "moderada",
+   "temas": [
+    "treino",
+    "hipertrofia",
+    "forca"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "zourdos2016",
+   "titulo": "Novel resistance training-specific rating of perceived exertion scale measuring repetitions in reserve",
+   "autores": "Zourdos MC, Klemp A, Dolan C, et al.",
+   "ano": 2016,
+   "periodico": "J Strength Cond Res 30(1):267-275",
+   "doi": "10.1519/JSC.0000000000001049",
+   "pmid": null,
+   "tipo": "estudo de validação",
+   "populacao": "Praticantes de agachamento experientes e novatos",
+   "resultados": "Escala de esforço baseada em repetições em reserva relaciona-se com a velocidade da barra; mais precisa em experientes.",
+   "limitacoes": "Um exercício; precisão menor longe da falha e em iniciantes.",
+   "grau": "moderada",
+   "temas": [
+    "treino",
+    "rir",
+    "rpe"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "refalo2023",
+   "titulo": "Influence of resistance training proximity-to-failure on skeletal muscle hypertrophy: a systematic review with meta-analysis",
+   "autores": "Refalo MC, Helms ER, Trexler ET, Hamilton DL, Fyfe JJ",
+   "ano": 2023,
+   "periodico": "Sports Med 53(3):649-665",
+   "doi": "10.1007/s40279-022-01784-y",
+   "pmid": null,
+   "tipo": "meta-análise",
+   "populacao": "Adultos em treino de força",
+   "resultados": "Treinar até a falha não mostrou vantagem clara de hipertrofia sobre parar perto da falha.",
+   "limitacoes": "Definições de falha heterogêneas.",
+   "grau": "moderada",
+   "temas": [
+    "treino",
+    "rir"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "meeusen2013",
+   "titulo": "Prevention, diagnosis, and treatment of the overtraining syndrome: joint consensus statement of the ECSS and the ACSM",
+   "autores": "Meeusen R, Duclos M, Foster C, et al.",
+   "ano": 2013,
+   "periodico": "Med Sci Sports Exerc 45(1):186-205",
+   "doi": "10.1249/MSS.0b013e318279a10a",
+   "pmid": null,
+   "tipo": "consenso",
+   "populacao": "Atletas",
+   "resultados": "Sobrecarga sem recuperação adequada leva a queda de desempenho; não há marcador único confiável, o diagnóstico é de exclusão.",
+   "limitacoes": "Evidência majoritariamente observacional.",
+   "grau": "moderada",
+   "temas": [
+    "treino",
+    "fadiga",
+    "recuperacao"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "kiviniemi2007",
+   "titulo": "Endurance training guided individually by daily heart rate variability measurements",
+   "autores": "Kiviniemi AM, Hautala AJ, Kinnunen H, Tulppo MP",
+   "ano": 2007,
+   "periodico": "Eur J Appl Physiol 101(6):743-751",
+   "doi": "10.1007/s00421-007-0552-2",
+   "pmid": null,
+   "tipo": "ensaio controlado",
+   "populacao": "Homens moderadamente ativos",
+   "resultados": "Treino aeróbico guiado por HRV diária melhorou o condicionamento tanto ou mais que plano fixo.",
+   "limitacoes": "Amostra pequena; treino aeróbico apenas.",
+   "grau": "limitada",
+   "temas": [
+    "treino",
+    "hrv",
+    "recuperacao"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "plews2013",
+   "titulo": "Training adaptation and heart rate variability in elite endurance athletes: opening the door to effective monitoring",
+   "autores": "Plews DJ, Laursen PB, Stanley J, Kilding AE, Buchheit M",
+   "ano": 2013,
+   "periodico": "Sports Med 43(9):773-781",
+   "doi": "10.1007/s40279-013-0071-8",
+   "pmid": null,
+   "tipo": "revisão",
+   "populacao": "Atletas de endurance",
+   "resultados": "Médias móveis de HRV comparadas à base individual são mais informativas que valores isolados.",
+   "limitacoes": "Atletas de elite; generalização limitada.",
+   "grau": "moderada",
+   "temas": [
+    "hrv",
+    "recuperacao"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "milanovic2015",
+   "titulo": "Effectiveness of high-intensity interval training (HIT) and continuous endurance training for VO2max improvements: a systematic review and meta-analysis of controlled trials",
+   "autores": "Milanović Z, Sporiš G, Weston M",
+   "ano": 2015,
+   "periodico": "Sports Med 45(10):1469-1481",
+   "doi": "10.1007/s40279-015-0365-0",
+   "pmid": null,
+   "tipo": "meta-análise",
+   "populacao": "Adultos saudáveis",
+   "resultados": "Treino contínuo e intervalado de alta intensidade aumentam o VO2 máx.; ganho um pouco maior com o intervalado.",
+   "limitacoes": "Heterogeneidade de protocolos.",
+   "grau": "moderada",
+   "temas": [
+    "treino",
+    "cardio",
+    "hiit"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "tanaka2001",
+   "titulo": "Age-predicted maximal heart rate revisited",
+   "autores": "Tanaka H, Monahan KD, Seals DR",
+   "ano": 2001,
+   "periodico": "J Am Coll Cardiol 37(1):153-156",
+   "doi": "10.1016/S0735-1097(00)01054-8",
+   "pmid": null,
+   "tipo": "meta-análise e estudo laboratorial",
+   "populacao": "Adultos saudáveis",
+   "resultados": "FC máxima ≈ 208 − 0,7 × idade; desvio individual de cerca de ±10 bpm.",
+   "limitacoes": "Estimativa populacional.",
+   "grau": "moderada",
+   "temas": [
+    "cardio",
+    "zonas"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "morton2018",
+   "titulo": "A systematic review, meta-analysis and meta-regression of the effect of protein supplementation on resistance training-induced gains in muscle mass and strength in healthy adults",
+   "autores": "Morton RW, Murphy KT, McKellar SR, et al.",
+   "ano": 2018,
+   "periodico": "Br J Sports Med 52(6):376-384",
+   "doi": "10.1136/bjsports-2017-097608",
+   "pmid": null,
+   "tipo": "meta-análise",
+   "populacao": "Adultos saudáveis em treino de força (49 ensaios)",
+   "resultados": "Suplementar proteína aumentou ganhos de força e massa magra; sem ganho adicional acima de ~1,6 g/kg/dia (limite superior do intervalo ~2,2).",
+   "limitacoes": "Efeito pequeno; menor em quem já consome proteína suficiente.",
+   "grau": "forte",
+   "temas": [
+    "nutricao",
+    "proteina",
+    "whey",
+    "hipertrofia"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "jager2017",
+   "titulo": "International Society of Sports Nutrition Position Stand: protein and exercise",
+   "autores": "Jäger R, Kerksick CM, Campbell BI, et al.",
+   "ano": 2017,
+   "periodico": "J Int Soc Sports Nutr 14:20",
+   "doi": "10.1186/s12970-017-0177-8",
+   "pmid": null,
+   "tipo": "posicionamento (ISSN)",
+   "populacao": "Pessoas fisicamente ativas",
+   "resultados": "1,4–2,0 g/kg/dia de proteína atende à maioria dos praticantes; 20–40 g por refeição.",
+   "limitacoes": "Posicionamento de sociedade.",
+   "grau": "moderada",
+   "temas": [
+    "nutricao",
+    "proteina",
+    "whey"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "schoenfeld2018meal",
+   "titulo": "How much protein can the body use in a single meal for muscle-building? Implications for daily protein distribution",
+   "autores": "Schoenfeld BJ, Aragon AA",
+   "ano": 2018,
+   "periodico": "J Int Soc Sports Nutr 15:10",
+   "doi": "10.1186/s12970-018-0215-1",
+   "pmid": null,
+   "tipo": "revisão",
+   "populacao": "Adultos",
+   "resultados": "Sugere ~0,4 g/kg por refeição em pelo menos 4 refeições para atingir 1,6 g/kg/dia.",
+   "limitacoes": "Revisão narrativa; o total diário importa mais.",
+   "grau": "limitada",
+   "temas": [
+    "nutricao",
+    "proteina"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "helms2014",
+   "titulo": "Evidence-based recommendations for natural bodybuilding contest preparation: nutrition and supplementation",
+   "autores": "Helms ER, Aragon AA, Fitschen PJ",
+   "ano": 2014,
+   "periodico": "J Int Soc Sports Nutr 11:20",
+   "doi": "10.1186/1550-2783-11-20",
+   "pmid": null,
+   "tipo": "revisão",
+   "populacao": "Praticantes magros em déficit",
+   "resultados": "Perda de 0,5–1% do peso por semana e proteína de 2,3–3,1 g/kg de massa magra preservam massa magra.",
+   "limitacoes": "População muito magra e treinada.",
+   "grau": "moderada",
+   "temas": [
+    "nutricao",
+    "emagrecimento",
+    "proteina"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "garthe2011",
+   "titulo": "Effect of two different weight-loss rates on body composition and strength and power-related performance in elite athletes",
+   "autores": "Garthe I, Raastad T, Refsnes PE, Koivisto A, Sundgot-Borgen J",
+   "ano": 2011,
+   "periodico": "Int J Sport Nutr Exerc Metab 21(2):97-104",
+   "doi": "10.1123/ijsnem.21.2.97",
+   "pmid": null,
+   "tipo": "ensaio randomizado",
+   "populacao": "Atletas de elite",
+   "resultados": "Perda lenta (~0,7%/semana) preservou e até aumentou massa magra em comparação à perda rápida (~1,4%/semana).",
+   "limitacoes": "Atletas; amostra pequena.",
+   "grau": "moderada",
+   "temas": [
+    "nutricao",
+    "emagrecimento"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "slater2019",
+   "titulo": "Is an energy surplus required to maximize skeletal muscle hypertrophy associated with resistance training",
+   "autores": "Slater GJ, Dieter BP, Marsh DJ, Helms ER, Shaw G, Iraki J",
+   "ano": 2019,
+   "periodico": "Front Nutr 6:131",
+   "doi": "10.3389/fnut.2019.00131",
+   "pmid": null,
+   "tipo": "revisão",
+   "populacao": "Praticantes de treino de força",
+   "resultados": "Um superávit pequeno pode favorecer a hipertrofia; superávits grandes aumentam sobretudo a gordura.",
+   "limitacoes": "Poucos ensaios diretos.",
+   "grau": "limitada",
+   "temas": [
+    "nutricao",
+    "hipertrofia"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "barakat2020",
+   "titulo": "Body recomposition: can trained individuals build muscle and lose fat at the same time?",
+   "autores": "Barakat C, Pearson J, Escalante G, Campbell B, De Souza EO",
+   "ano": 2020,
+   "periodico": "Strength Cond J 42(5):7-21",
+   "doi": "10.1519/SSC.0000000000000584",
+   "pmid": null,
+   "tipo": "revisão",
+   "populacao": "Praticantes treinados",
+   "resultados": "Recomposição é possível, sobretudo com proteína alta, treino progressivo e sono adequado.",
+   "limitacoes": "Revisão narrativa.",
+   "grau": "limitada",
+   "temas": [
+    "nutricao",
+    "recomposicao"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "mountjoy2018",
+   "titulo": "IOC consensus statement on relative energy deficiency in sport (RED-S): 2018 update",
+   "autores": "Mountjoy M, Sundgot-Borgen JK, Burke LM, et al.",
+   "ano": 2018,
+   "periodico": "Br J Sports Med 52(11):687-697",
+   "doi": "10.1136/bjsports-2018-099193",
+   "pmid": null,
+   "tipo": "consenso (COI)",
+   "populacao": "Atletas",
+   "resultados": "Baixa disponibilidade energética (abaixo de ~30 kcal/kg de massa magra/dia) prejudica saúde e desempenho.",
+   "limitacoes": "Limiar não é universal.",
+   "grau": "moderada",
+   "temas": [
+    "nutricao",
+    "seguranca"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "thomas2016",
+   "titulo": "American College of Sports Medicine Joint Position Statement. Nutrition and Athletic Performance",
+   "autores": "Thomas DT, Erdman KA, Burke LM",
+   "ano": 2016,
+   "periodico": "Med Sci Sports Exerc 48(3):543-568",
+   "doi": "10.1249/MSS.0000000000000852",
+   "pmid": null,
+   "tipo": "posicionamento (ACSM/AND/DC)",
+   "populacao": "Atletas e praticantes",
+   "resultados": "Recomendações de energia, carboidrato (3–12 g/kg conforme a carga), proteína e hidratação.",
+   "limitacoes": "Voltado a atletas.",
+   "grau": "forte",
+   "temas": [
+    "nutricao",
+    "desempenho",
+    "carboidrato"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "iom2005",
+   "titulo": "Dietary Reference Intakes for Energy, Carbohydrate, Fiber, Fat, Fatty Acids, Cholesterol, Protein, and Amino Acids",
+   "autores": "Institute of Medicine",
+   "ano": 2005,
+   "periodico": "National Academies Press",
+   "doi": "10.17226/10490",
+   "pmid": null,
+   "tipo": "referência dietética",
+   "populacao": "População saudável",
+   "resultados": "Ingestão adequada de fibras: 14 g por 1.000 kcal.",
+   "limitacoes": "Referência populacional norte-americana.",
+   "grau": "forte",
+   "temas": [
+    "nutricao",
+    "fibra"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "who2023carb",
+   "titulo": "Carbohydrate intake for adults and children: WHO guideline",
+   "autores": "World Health Organization",
+   "ano": 2023,
+   "periodico": "WHO, Genebra (ISBN 978-92-4-007359-3)",
+   "doi": null,
+   "pmid": null,
+   "tipo": "diretriz (OMS)",
+   "populacao": "Adultos e crianças",
+   "resultados": "Adultos: pelo menos 25 g/dia de fibra alimentar e 400 g/dia de frutas e vegetais.",
+   "limitacoes": "Recomendação populacional.",
+   "grau": "forte",
+   "temas": [
+    "nutricao",
+    "fibra"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "efsa2010",
+   "titulo": "Scientific Opinion on Dietary Reference Values for water",
+   "autores": "EFSA Panel on Dietetic Products, Nutrition, and Allergies",
+   "ano": 2010,
+   "periodico": "EFSA Journal 8(3):1459",
+   "doi": "10.2903/j.efsa.2010.1459",
+   "pmid": null,
+   "tipo": "parecer científico",
+   "populacao": "População europeia",
+   "resultados": "Ingestão adequada de água total (bebidas e alimentos): 2,5 L/dia para homens e 2,0 L/dia para mulheres em clima temperado.",
+   "limitacoes": "Não considera calor intenso nem exercício.",
+   "grau": "moderada",
+   "temas": [
+    "nutricao",
+    "hidratacao"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "sawka2007",
+   "titulo": "American College of Sports Medicine position stand. Exercise and fluid replacement",
+   "autores": "Sawka MN, Burke LM, Eichner ER, Maughan RJ, Montain SJ, Stachenfeld NS",
+   "ano": 2007,
+   "periodico": "Med Sci Sports Exerc 39(2):377-390",
+   "doi": "10.1249/mss.0b013e31802ca597",
+   "pmid": null,
+   "tipo": "posicionamento (ACSM)",
+   "populacao": "Praticantes de exercício",
+   "resultados": "Evitar perda superior a 2% do peso por desidratação; sódio é útil em exercícios prolongados com muito suor.",
+   "limitacoes": "Necessidades muito individuais.",
+   "grau": "moderada",
+   "temas": [
+    "hidratacao",
+    "eletrolitos"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "kreider2017",
+   "titulo": "International Society of Sports Nutrition position stand: safety and efficacy of creatine supplementation in exercise, sport, and medicine",
+   "autores": "Kreider RB, Kalman DS, Antonio J, et al.",
+   "ano": 2017,
+   "periodico": "J Int Soc Sports Nutr 14:18",
+   "doi": "10.1186/s12970-017-0173-z",
+   "pmid": null,
+   "tipo": "posicionamento (ISSN)",
+   "populacao": "Adultos saudáveis",
+   "resultados": "Creatina monoidratada aumenta desempenho em esforços intensos e massa magra com treino; 3–5 g/dia mantêm os estoques; segura em pessoas saudáveis nos estudos.",
+   "limitacoes": "Menos dados em doença renal e uso por décadas.",
+   "grau": "forte",
+   "temas": [
+    "suplementos",
+    "creatina"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "antonio2021",
+   "titulo": "Common questions and misconceptions about creatine supplementation: what does the scientific evidence really show?",
+   "autores": "Antonio J, Candow DG, Forbes SC, et al.",
+   "ano": 2021,
+   "periodico": "J Int Soc Sports Nutr 18:13",
+   "doi": "10.1186/s12970-021-00412-w",
+   "pmid": null,
+   "tipo": "revisão",
+   "populacao": "Adultos",
+   "resultados": "Não há evidência de dano renal em pessoas saudáveis nas doses recomendadas; ganho inicial de peso por água intracelular.",
+   "limitacoes": "Revisão narrativa.",
+   "grau": "moderada",
+   "temas": [
+    "suplementos",
+    "creatina"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "guest2021",
+   "titulo": "International Society of Sports Nutrition position stand: caffeine and exercise performance",
+   "autores": "Guest NS, VanDusseldorp TA, Nelson MT, et al.",
+   "ano": 2021,
+   "periodico": "J Int Soc Sports Nutr 18:1",
+   "doi": "10.1186/s12970-020-00383-4",
+   "pmid": null,
+   "tipo": "posicionamento (ISSN)",
+   "populacao": "Adultos",
+   "resultados": "3–6 mg/kg cerca de 60 min antes melhora desempenho de resistência e força em muitos indivíduos; resposta varia; pode prejudicar sono e aumentar ansiedade.",
+   "limitacoes": "Variação individual grande.",
+   "grau": "forte",
+   "temas": [
+    "suplementos",
+    "cafeina"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "efsa2015caffeine",
+   "titulo": "Scientific Opinion on the safety of caffeine",
+   "autores": "EFSA Panel on Dietetic Products, Nutrition and Allergies",
+   "ano": 2015,
+   "periodico": "EFSA Journal 13(5):4102",
+   "doi": "10.2903/j.efsa.2015.4102",
+   "pmid": null,
+   "tipo": "parecer científico",
+   "populacao": "Adultos saudáveis",
+   "resultados": "Até 400 mg/dia e doses únicas de 200 mg não levantam preocupação de segurança em adultos saudáveis; 100 mg perto de dormir podem afetar o sono.",
+   "limitacoes": "Não se aplica a gestantes (limite menor) nem a certas condições.",
+   "grau": "forte",
+   "temas": [
+    "suplementos",
+    "cafeina",
+    "seguranca"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "drake2013",
+   "titulo": "Caffeine effects on sleep taken 0, 3, or 6 hours before going to bed",
+   "autores": "Drake C, Roehrs T, Shambroom J, Roth T",
+   "ano": 2013,
+   "periodico": "J Clin Sleep Med 9(11):1195-1200",
+   "doi": "10.5664/jcsm.3170",
+   "pmid": null,
+   "tipo": "ensaio cruzado",
+   "populacao": "Adultos saudáveis",
+   "resultados": "400 mg de cafeína até 6 horas antes de dormir reduziram o tempo de sono em mais de 1 hora.",
+   "limitacoes": "Dose alta; amostra pequena.",
+   "grau": "moderada",
+   "temas": [
+    "cafeina",
+    "sono"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "clark2017",
+   "titulo": "Coffee, caffeine, and sleep: a systematic review of epidemiological studies and randomized controlled trials",
+   "autores": "Clark I, Landolt HP",
+   "ano": 2017,
+   "periodico": "Sleep Med Rev 31:70-78",
+   "doi": "10.1016/j.smrv.2016.01.006",
+   "pmid": null,
+   "tipo": "revisão sistemática",
+   "populacao": "Adultos",
+   "resultados": "Cafeína prolonga a latência e reduz duração e qualidade do sono, com grande variação individual.",
+   "limitacoes": "Heterogeneidade.",
+   "grau": "moderada",
+   "temas": [
+    "cafeina",
+    "sono"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "trexler2015",
+   "titulo": "International society of sports nutrition position stand: Beta-Alanine",
+   "autores": "Trexler ET, Smith-Ryan AE, Stout JR, et al.",
+   "ano": 2015,
+   "periodico": "J Int Soc Sports Nutr 12:30",
+   "doi": "10.1186/s12970-015-0090-y",
+   "pmid": null,
+   "tipo": "posicionamento (ISSN)",
+   "populacao": "Adultos",
+   "resultados": "4–6 g/dia por pelo menos 2–4 semanas melhora esforços de 1–4 min; parestesia é o efeito adverso comum.",
+   "limitacoes": "Efeito pequeno e específico.",
+   "grau": "moderada",
+   "temas": [
+    "suplementos",
+    "beta-alanina"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "maughan2018",
+   "titulo": "IOC consensus statement: dietary supplements and the high-performance athlete",
+   "autores": "Maughan RJ, Burke LM, Dvorak J, et al.",
+   "ano": 2018,
+   "periodico": "Br J Sports Med 52(7):439-455",
+   "doi": "10.1136/bjsports-2018-099027",
+   "pmid": null,
+   "tipo": "consenso (COI)",
+   "populacao": "Atletas",
+   "resultados": "Poucos suplementos têm boa evidência de desempenho (cafeína, creatina, nitrato, beta-alanina, bicarbonato); a alimentação vem primeiro; há risco de contaminação.",
+   "limitacoes": "Foco em atletas de alto rendimento.",
+   "grau": "forte",
+   "temas": [
+    "suplementos"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "manson2019",
+   "titulo": "Vitamin D supplements and prevention of cancer and cardiovascular disease",
+   "autores": "Manson JE, Cook NR, Lee IM, et al. (VITAL)",
+   "ano": 2019,
+   "periodico": "N Engl J Med 380(1):33-44",
+   "doi": "10.1056/NEJMoa1809944",
+   "pmid": null,
+   "tipo": "ensaio randomizado",
+   "populacao": "25.871 adultos",
+   "resultados": "2.000 UI/dia de vitamina D não reduziram câncer invasivo nem eventos cardiovasculares maiores.",
+   "limitacoes": "População em geral sem deficiência.",
+   "grau": "forte",
+   "temas": [
+    "suplementos",
+    "vitamina d"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "manson2019n3",
+   "titulo": "Marine n-3 fatty acids and prevention of cardiovascular disease and cancer",
+   "autores": "Manson JE, Cook NR, Lee IM, et al. (VITAL)",
+   "ano": 2019,
+   "periodico": "N Engl J Med 380(1):23-32",
+   "doi": "10.1056/NEJMoa1811403",
+   "pmid": null,
+   "tipo": "ensaio randomizado",
+   "populacao": "25.871 adultos",
+   "resultados": "1 g/dia de ômega-3 não reduziu eventos cardiovasculares maiores nem câncer na prevenção primária.",
+   "limitacoes": "Desfechos secundários sugerem possível benefício em quem come pouco peixe.",
+   "grau": "forte",
+   "temas": [
+    "suplementos",
+    "omega-3"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "holick2011",
+   "titulo": "Evaluation, treatment, and prevention of vitamin D deficiency: an Endocrine Society clinical practice guideline",
+   "autores": "Holick MF, Binkley NC, Bischoff-Ferrari HA, et al.",
+   "ano": 2011,
+   "periodico": "J Clin Endocrinol Metab 96(7):1911-1930",
+   "doi": "10.1210/jc.2011-0385",
+   "pmid": null,
+   "tipo": "diretriz",
+   "populacao": "Pessoas em risco de deficiência",
+   "resultados": "Dosar 25(OH)D em grupos de risco; tratamento conforme o nível sérico.",
+   "limitacoes": "Diretriz de 2011, revista posteriormente; limiares debatidos.",
+   "grau": "moderada",
+   "temas": [
+    "suplementos",
+    "vitamina d",
+    "exames"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "iom2011",
+   "titulo": "Dietary Reference Intakes for Calcium and Vitamin D",
+   "autores": "Institute of Medicine",
+   "ano": 2011,
+   "periodico": "National Academies Press",
+   "doi": "10.17226/13050",
+   "pmid": null,
+   "tipo": "referência dietética",
+   "populacao": "População saudável",
+   "resultados": "Vitamina D: 600 UI/dia (adultos até 70 anos); limite superior tolerável de 4.000 UI/dia.",
+   "limitacoes": "Referência populacional.",
+   "grau": "forte",
+   "temas": [
+    "suplementos",
+    "vitamina d",
+    "seguranca"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "iom1997",
+   "titulo": "Dietary Reference Intakes for Calcium, Phosphorus, Magnesium, Vitamin D, and Fluoride",
+   "autores": "Institute of Medicine",
+   "ano": 1997,
+   "periodico": "National Academies Press",
+   "doi": "10.17226/5776",
+   "pmid": null,
+   "tipo": "referência dietética",
+   "populacao": "População saudável",
+   "resultados": "Limite superior tolerável de magnésio vindo de suplementos: 350 mg/dia (efeito limitante: diarreia).",
+   "limitacoes": "Referência populacional.",
+   "grau": "forte",
+   "temas": [
+    "suplementos",
+    "magnesio",
+    "seguranca"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "mah2021",
+   "titulo": "Oral magnesium supplementation for insomnia in older adults: a systematic review and meta-analysis",
+   "autores": "Mah J, Pitre T",
+   "ano": 2021,
+   "periodico": "BMC Complement Med Ther 21:125",
+   "doi": "10.1186/s12906-021-03297-z",
+   "pmid": null,
+   "tipo": "meta-análise",
+   "populacao": "Idosos com insônia",
+   "resultados": "Evidência de baixa qualidade de pequena melhora na latência do sono.",
+   "limitacoes": "Poucos ensaios pequenos, alto risco de viés.",
+   "grau": "limitada",
+   "temas": [
+    "suplementos",
+    "magnesio",
+    "sono"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "abdelhamid2020",
+   "titulo": "Omega-3 fatty acids for the primary and secondary prevention of cardiovascular disease",
+   "autores": "Abdelhamid AS, Brown TJ, Brainard JS, et al.",
+   "ano": 2020,
+   "periodico": "Cochrane Database Syst Rev (3):CD003177",
+   "doi": "10.1002/14651858.CD003177.pub5",
+   "pmid": null,
+   "tipo": "revisão sistemática (Cochrane)",
+   "populacao": "Adultos",
+   "resultados": "Suplementos de ômega-3 têm pouco ou nenhum efeito sobre mortalidade e eventos cardiovasculares; reduzem triglicerídeos.",
+   "limitacoes": "Doses e populações heterogêneas.",
+   "grau": "forte",
+   "temas": [
+    "suplementos",
+    "omega-3"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "gencer2021",
+   "titulo": "Effect of long-term marine omega-3 fatty acids supplementation on the risk of atrial fibrillation in randomized controlled trials of cardiovascular outcomes: a systematic review and meta-analysis",
+   "autores": "Gencer B, Djousse L, Al-Ramady OT, Cook NR, Manson JE, Albert CM",
+   "ano": 2021,
+   "periodico": "Circulation 144(25):1981-1990",
+   "doi": "10.1161/CIRCULATIONAHA.121.055654",
+   "pmid": null,
+   "tipo": "meta-análise",
+   "populacao": "Adultos em ensaios cardiovasculares",
+   "resultados": "Ômega-3 associou-se a maior risco de fibrilação atrial, mais evidente acima de 1 g/dia.",
+   "limitacoes": "Risco absoluto pequeno.",
+   "grau": "moderada",
+   "temas": [
+    "suplementos",
+    "omega-3",
+    "seguranca"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "anvisa2018",
+   "titulo": "RDC nº 243/2018 (requisitos sanitários dos suplementos alimentares) e IN nº 28/2018 (listas de constituintes, limites de uso, alegações e rotulagem)",
+   "autores": "Agência Nacional de Vigilância Sanitária (Anvisa)",
+   "ano": 2018,
+   "periodico": "Diário Oficial da União",
+   "doi": null,
+   "pmid": null,
+   "tipo": "regulamento",
+   "populacao": "Brasil",
+   "resultados": "Define o que pode ser vendido como suplemento alimentar, limites por constituinte e alegações permitidas.",
+   "limitacoes": "Consultar a versão vigente e suas atualizações no portal da Anvisa.",
+   "grau": "regulatório",
+   "temas": [
+    "suplementos",
+    "regulacao"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  },
+  {
+   "chave": "watson2015",
+   "titulo": "Recommended amount of sleep for a healthy adult: a joint consensus statement of the American Academy of Sleep Medicine and Sleep Research Society",
+   "autores": "Watson NF, Badr MS, Belenky G, et al.",
+   "ano": 2015,
+   "periodico": "Sleep 38(6):843-844",
+   "doi": "10.5665/sleep.4716",
+   "pmid": null,
+   "tipo": "consenso",
+   "populacao": "Adultos",
+   "resultados": "Adultos devem dormir 7 horas ou mais por noite de forma regular.",
+   "limitacoes": "Consenso baseado em estudos observacionais.",
+   "grau": "moderada",
+   "temas": [
+    "sono"
+   ],
+   "revisado_em": "2026-11-26",
+   "verificado": false
+  }
+ ]
+}

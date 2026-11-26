@@ -61,6 +61,23 @@ def decrypt_backup(cfg: Config, path: Path) -> bytes:
     return Fernet(_key(_passphrase(cfg), salt)).decrypt(token)
 
 
+def verify_backup(cfg: Config, path: Path) -> dict:
+    """Teste de restauração sem tocar no banco em uso: decifra, abre e roda integrity_check."""
+    data = decrypt_backup(cfg, path)
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td) / "check.db"
+        tmp.write_bytes(data)
+        con = sqlite3.connect(tmp)
+        try:
+            ok = con.execute("PRAGMA integrity_check").fetchone()[0]
+            n = con.execute("SELECT COUNT(*) FROM daily_metrics").fetchone()[0]
+        finally:
+            con.close()
+    if ok != "ok":
+        raise RuntimeError(f"Backup {path.name} falhou na verificação de integridade: {ok}")
+    return {"arquivo": path.name, "integridade": ok, "dias": n, "bytes": len(data)}
+
+
 def restore_backup(cfg: Config, path: Path) -> Path:
     data = decrypt_backup(cfg, path)
     target = cfg.db_path

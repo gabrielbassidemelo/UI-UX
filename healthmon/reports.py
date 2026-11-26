@@ -190,6 +190,20 @@ def daily(cfg: Config, db: Database, day: date, sync_failed: bool = False) -> Re
     tips = ins.day_suggestions(snap)
     doc.ul(tips)
 
+    try:
+        from . import planner
+        plan = planner.daily_plan(db, cfg, day)
+        doc.h("Plano do dia")
+        doc.table(["Pergunta", "Recomendação", "Confiança"],
+                  [[i["pergunta"], i["o_que_fazer"], i["confianca"]] for i in plan["itens"][1:5]])
+        if plan["proximas_acoes"]:
+            doc.h("Próximas ações")
+            doc.ul(plan["proximas_acoes"])
+        doc.p(f"Qualidade dos dados nos últimos 14 dias: {plan['qualidade_dados']['pontuacao']}/100 "
+              f"({plan['qualidade_dados']['nivel']}). Justificativas e referências completas no dashboard.")
+    except Exception as e:  # noqa: BLE001 — o relatório base nunca depende dos módulos novos
+        import logging
+        logging.getLogger(__name__).warning("Plano do dia indisponível: %s", type(e).__name__)
     summary = ins.STATUS_TXT[rec["status"]]
     if "sleep_seconds" in av:
         summary += f" · sono {fmt('sleep_seconds', r.get('sleep_seconds'))}"

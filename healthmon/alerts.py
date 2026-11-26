@@ -72,16 +72,36 @@ def evaluate(cfg: Config, db: Database, day: date) -> list[int]:
     return created
 
 
+def evaluate_key_expiry(cfg: Config, db: Database) -> int | None:
+    """Aviso antecipado do vencimento da chave pessoal da Garmin (14 e 3 dias antes; e após vencer)."""
+    from .garmin_official import key_expiry_status
+    if cfg.get("garmin", "fonte", "oficial") != "oficial":
+        return None
+    st = key_expiry_status(cfg)
+    if st["nivel"] not in ("aviso", "critico", "expirada"):
+        return None
+    kind = f"chave_garmin_{st['nivel']}"
+    if not _cooldown_ok(db, kind, 24 * (10 if st["nivel"] == "aviso" else 2)):
+        return None
+    msg = ("A chave pessoal da Garmin expirou." if st["nivel"] == "expirada"
+           else f"A chave pessoal da Garmin expira em {st['dias']} dia(s) ({st['expira_em']}).")
+    return db.add_alert(date.today().isoformat(), kind, "atencao", "Chave da Garmin perto do vencimento"
+                        if st["nivel"] != "expirada" else "Chave da Garmin expirada",
+                        msg + " Gere uma nova em connect.garmin.com/app/settings/personalApiToken, grave em secrets.env "
+                        "e atualize [garmin] chave_expira_em.", st)
+
+
 def evaluate_sync(cfg: Config, db: Database, auth_error: bool = False) -> int | None:
+    evaluate_key_expiry(cfg, db)
     if not cfg.data.get("alertas", {}).get("falha_sincronizacao", True):
         return None
     cooldown = min(24.0, float(cfg.get("notificacoes", "cooldown_horas", 72)))
     if auth_error:
         if _cooldown_ok(db, "falha_sincronizacao", cooldown):
             return db.add_alert(date.today().isoformat(), "falha_sincronizacao", "atencao",
-                                "Sessão com o Garmin expirou",
-                                "É preciso refazer o login uma vez: rode `healthmon login` no computador "
-                                "onde o sistema está instalado.", {})
+                                "Acesso à Garmin recusado",
+                                "A chave pessoal está ausente, inválida ou expirada. Gere uma nova chave no site da "
+                                "Garmin e grave em secrets.env no servidor (GARMIN_PERSONAL_API_KEY).", {})
         return None
     hist = db.sync_history(3)
     last_ok = db.last_successful_sync()

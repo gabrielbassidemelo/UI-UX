@@ -23,6 +23,7 @@ SECRET_KEYS = (
     "TELEGRAM_CHAT_ID",
     "SMTP_PASSWORD",
     "ANTHROPIC_API_KEY",
+    "GARMIN_PERSONAL_API_KEY",
 )
 
 
@@ -146,6 +147,8 @@ def init_home(home: Path | None = None) -> Path:
         write_private_file(
             sec,
             "# Segredos do healthmon — permissão 600, nunca versionar.\n"
+            "# Chave pessoal da Garmin (connect.garmin.com/app/settings/personalApiToken):\n"
+            "GARMIN_PERSONAL_API_KEY=\n"
             "# Frase-senha para criptografar os backups (obrigatória para backups):\n"
             "HEALTHMON_BACKUP_PASSPHRASE=\n"
             "# Telegram (opcional): token do bot criado no @BotFather e seu chat id\n"
