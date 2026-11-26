@@ -1,72 +1,57 @@
-# healthmon — monitoramento pessoal de saúde e recuperação (Garmin CIRQA)
+# healthmon — inteligência fisiológica pessoal (Garmin CIRQA)
 
-Sistema local e automatizado que coleta os dados da sua conta Garmin Connect, guarda o histórico num
-banco SQLite no seu computador, constrói uma **linha de base individual**, identifica tendências e
-padrões persistentes, gera relatórios diário/noturno/semanal/mensal em português e mostra tudo num
-dashboard para iPhone, com modo escuro.
+Sistema pessoal que coleta os dados da sua conta Garmin pela **API oficial**, guarda o histórico num
+banco SQLite, constrói linhas de base individuais e produz, todos os dias, um plano com treino, metas
+nutricionais e pontos de atenção, cada item com justificativa, dados usados, evidência científica e grau
+de confiança. Roda sozinho numa VM gratuita e é usado pelo iPhone como um app (PWA).
 
-```
-CIRQA ──BT──► app Garmin Connect (iPhone) ──► nuvem Garmin
-                                                  │  (garminconnect, só leitura, tokens locais)
-                                                  ▼
-             ┌──────────── seu computador (healthmon) ─────────────┐
-             │ coleta ► SQLite ► análise estatística ► relatórios  │
-             │            ▲             │             (regras / IA │
-             │            │             ▼              local)      │
-             │      backups .hmbk   alertas ► Telegram/e-mail      │
-             │      (criptografados)  dashboard (FastAPI) ◄────────┼── iPhone via Tailscale (HTTPS privado)
-             └──────────────────────────────────────────────────────┘
-```
+> **Estado em 26/11/2026:** o código está completo e passa em 108 testes automatizados com **dados
+> sintéticos**. **A integração real com a Garmin ainda não foi validada** e nada foi implantado: isso
+> depende de você criar a VM e digitar a sua chave no servidor. Veja `docs/RELATORIO_FASE2.md`.
 
 ## O que faz
-- **Coleta automática** a cada 2 h: FC (repouso/mín/máx), HRV, sono (fases, pontuação, despertares,
-  respiração, SpO2, estresse no sono, temperatura da pele), estresse, Body Battery, prontidão para treino,
-  passos, calorias, minutos de intensidade, atividades e VO2 máx., **quando fornecidos pela sua conta**.
-  `healthmon disponibilidade` lista o que a CIRQA de fato entrega e o que está ausente.
-- **Análise local:** linha de base robusta (mediana/MAD, 28 dias), separação entre desvio pontual e
-  padrão persistente, tendências (Theil–Sen + Mann–Kendall), associações de Spearman com defasagem,
-  avaliação de recuperação. Veja [docs/METODOLOGIA.md](docs/METODOLOGIA.md).
-- **Relatórios:** diário (08h, com novas tentativas se o sono não sincronizou), noturno (22h), semanal
-  (domingo) e mensal (com gráficos comparativos).
-- **Alertas sem excesso:** queda persistente de HRV, aumento da FC de repouso, piora do sono, recuperação
-  insuficiente, estresse elevado e falhas de sincronização, sempre em relação ao seu histórico, com cooldown,
-  limite diário e horário silencioso.
-- **Dashboard (PWA):** indicadores do dia, gráficos interativos com faixa usual e média móvel, filtros de
-  7/30/90/365 dias, comparação entre períodos, relatórios, alertas e status. Pode ser instalado na tela
-  inicial do iPhone.
-- **IA opcional:** motor de regras local (padrão), LLM local via Ollama, ou Claude na nuvem **somente
-  com consentimento explícito** e prévia exata do que seria enviado.
-
-## Início rápido
-```bash
-./deploy/instalar.sh
-healthmon login            # Garmin: e-mail/senha/MFA uma única vez (a senha não é salva)
-healthmon senha-dashboard
-healthmon historico --dias 90
-healthmon executar         # agendador + dashboard em http://127.0.0.1:8765
-```
-O passo a passo completo (serviço permanente, Docker, acesso pelo iPhone com Tailscale, Telegram,
-Ollama e solução de problemas) está em **[docs/OPERACAO.md](docs/OPERACAO.md)**.
-
-Para conhecer o sistema sem a sua conta: `HEALTHMON_HOME=/tmp/hm-demo healthmon demo` gera dados
-**simulados**, sempre marcados como tal no dashboard e nos relatórios.
+- **Coleta oficial:** Garmin Connect Personal API (chave pessoal, somente leitura), a cada 2 horas, com
+  renovação de token, respeito a limites, sincronização incremental e alerta de vencimento da chave.
+- **Estatística individual:** faixa usual por mediana e MAD, EWMA, tendências, detecção de mudança,
+  efeito do dia da semana, qualidade dos dados e backtesting de previsões.
+- **Metabolismo:** taxa basal (Mifflin-St Jeor; Cunningham com percentual de gordura), três estimativas de
+  gasto diário com intervalo e recalibração pela sua ingestão e evolução de peso.
+- **Treino adaptativo:** plano periodizado conforme objetivo, nível, equipamento e limitações; progressão
+  de carga; ajuste diário por vários sinais mais a sua percepção; limites de segurança fixos.
+- **Nutrição:** metas de calorias, macros, fibra e água; registro de refeições por texto com a tabela
+  TACO; sugestão de cardápio por programação linear.
+- **Suplementação e base científica:** fichas de 8 suplementos, regras que podem concluir "desnecessário",
+  56 referências com busca local.
+- **Exames, experimentos e evolução:** exames com a referência do laboratório; experimentos A/B em você
+  mesmo; objetivos; histórico de decisões e resultados.
+- **Relatórios e notificações:** diário (08h), noturno (22h), semanal e mensal; push no iPhone com texto
+  genérico.
+- **Segurança:** painel só em rede privada (Tailscale), senha com scrypt, backups cifrados e testados,
+  exportação e exclusão dos dados.
 
 ## Documentação
-- [docs/PESQUISA_INTEGRACOES.md](docs/PESQUISA_INTEGRACOES.md): APIs avaliadas, compatibilidade com a CIRQA, riscos e fontes
-- [docs/METODOLOGIA.md](docs/METODOLOGIA.md): métodos estatísticos e referências científicas
-- [docs/SEGURANCA_LGPD.md](docs/SEGURANCA_LGPD.md): o que fica onde, o que sai da máquina, consentimento
-- [docs/OPERACAO.md](docs/OPERACAO.md): instalação, manutenção e recuperação de falhas
+| Documento | Conteúdo |
+|---|---|
+| [docs/RELATORIO_FASE2.md](docs/RELATORIO_FASE2.md) | Auditoria, testes, o que está pronto, o que falta, limitações |
+| [docs/INFRAESTRUTURA.md](docs/INFRAESTRUTURA.md) | Comparação Oracle × Supabase/Cloudflare, custos, riscos |
+| [docs/IMPLANTACAO.md](docs/IMPLANTACAO.md) | Passo a passo, validação com dados reais, recuperação de falhas |
+| [docs/MANUAL_IPHONE.md](docs/MANUAL_IPHONE.md) | Como usar no dia a dia |
+| [docs/ARQUITETURA.md](docs/ARQUITETURA.md) | Módulos, modelos estatísticos, modalidades de IA |
+| [docs/EVIDENCIAS.md](docs/EVIDENCIAS.md) | Referências, regras e limites de segurança |
+| [docs/SEGURANCA_LGPD.md](docs/SEGURANCA_LGPD.md) | Relatório de segurança e privacidade |
+| [docs/METODOLOGIA.md](docs/METODOLOGIA.md) | Métodos da fase 1 (linha de base, persistência, tendências) |
+| [docs/PESQUISA_INTEGRACOES.md](docs/PESQUISA_INTEGRACOES.md) | Integrações avaliadas e compatibilidade com a CIRQA |
 
-## Testes
+## Desenvolvimento
 ```bash
-pip install -e ".[dev]" && pytest
+python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
+pytest -q                                   # 108 testes, só dados sintéticos
+HEALTHMON_HOME=/tmp/hm-demo healthmon init && HEALTHMON_HOME=/tmp/hm-demo healthmon demo   # banco de demonstração
 ```
+Subagentes do Claude Code para manutenção estão em `.claude/agents/` (arquiteto, desenvolvedor,
+científico, segurança, qualidade e operacional). A versão estável da fase 1 é o commit `39796ea`.
 
 ## Aviso
-Ferramenta de acompanhamento pessoal. Compara você com o seu próprio histórico a partir de medições de
-um vestível. **Não faz diagnóstico, não substitui avaliação profissional e não trata medições como exames
-clínicos.** Associações estatísticas não implicam causalidade.
-
-A coleta usa a biblioteca não oficial `garminconnect`, porque a API oficial de saúde da Garmin é restrita
-a empresas. Os riscos e a alternativa oficial (Personal API) estão descritos em
-[docs/PESQUISA_INTEGRACOES.md](docs/PESQUISA_INTEGRACOES.md).
+Ferramenta informativa de acompanhamento pessoal. Não faz diagnóstico, não prescreve tratamento nem
+suplementos e não substitui médico, nutricionista ou professor de educação física. Medições de vestíveis
+e os valores calculados aqui são estimativas, não exames clínicos.

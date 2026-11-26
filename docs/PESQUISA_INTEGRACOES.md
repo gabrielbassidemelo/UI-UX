@@ -1,5 +1,10 @@
 # Pesquisa de integrações e compatibilidade com o Garmin CIRQA
 
+> **Atualização da fase 2 (26/11/2026):** a integração padrão passou a ser a **Garmin Connect Personal API
+> oficial**, usando a biblioteca `garmin-connect-personal-api-python` 1.1.0, publicada pela Garmin no PyPI
+> em 20/11/2026 (licença Apache 2.0). A biblioteca não oficial ficou opcional e desativada. Veja a seção
+> "Personal API oficial" ao final. O restante do documento registra a pesquisa original da fase 1.
+
 Pesquisa feita em 26/11/2026. Os sites da Garmin (developer.garmin.com, connectapi.garmin.com) estavam
 bloqueados pela rede do ambiente de desenvolvimento, então as afirmações sobre eles vêm de resultados de
 busca e de análises de terceiros, com as fontes listadas. O código da biblioteca `garminconnect` foi
@@ -51,13 +56,27 @@ realmente entregou** nos últimos 30 dias. Ausência de dados é marcada como au
 - **Credenciais:** a senha é digitada uma única vez, só fica na memória e é descartada; guardam-se apenas
   os tokens de sessão (arquivo com permissão 600). Se os tokens expirarem, você recebe um alerta pedindo `healthmon login`.
 
-## 3. Próximo passo recomendado: Personal API oficial
+## 3. Personal API oficial (adotada na fase 2)
 
-O FAQ da Garmin descreve uma **Personal API** para pessoas físicas acessarem os próprios dados (chave
-gerada pelo usuário, só leitura). É a opção mais alinhada ao requisito "oficial e estável". Não a implementei
-porque **não consegui ler a documentação técnica** (endpoints, cabeçalhos, limites), e o requisito proíbe
-inventar endpoints. Quando a documentação for verificada, basta criar um `PersonalApiSource` com o mesmo
-método `fetch_day()` e trocar a fonte; banco, análises, relatórios e dashboard continuam iguais.
+Fonte: README e código da biblioteca oficial (inspecionados diretamente) e FAQ da Garmin (via busca).
+
+- **Autenticação:** você gera uma chave pessoal em connect.garmin.com/app/settings/personalApiToken, com
+  validade de 30, 90, 180 ou 365 dias. O sistema troca a chave por um token de acesso (JWT) válido por
+  24 horas ou até a chave expirar; não há refresh token. A biblioteca guarda o token em arquivo 0600 e o
+  renova quando falta menos de 1 hora.
+- **Somente leitura**, apenas dos seus próprios dados, em `https://personal.connectapi.garmin.com`.
+- **Limites de requisição:** a Garmin não publica números e pode restringir sem aviso. O sistema usa pausa
+  entre chamadas, teto diário configurável, espera crescente em erros e para por 60 minutos após um 429.
+- **Endpoints usados (12 por dia):** resumo diário, sono, HRV, frequência cardíaca, Body Battery, estresse,
+  SpO2, VO2 máx., atividades, peso, hidratação e registros alimentares.
+- **Sem endpoint na Personal API:** prontidão para treino e respiração dedicada. Temperatura da pele e
+  respiração no sono só aparecerão se vierem dentro da resposta de sono.
+- **O que não pude verificar:** o formato exato das respostas (a documentação Swagger é montada no
+  navegador e o host estava bloqueado). O leitor de dados procura os campos de forma defensiva e o comando
+  `healthmon validar-garmin` mostra a estrutura real, sem valores, para ajuste. **Até essa validação, a
+  integração real não está comprovada.**
+- **Registros alimentares e peso do Garmin Connect:** o peso é aproveitado; os registros alimentares são
+  guardados em bruto, sem leitura, até o formato ser conhecido.
 
 ## Fontes
 
@@ -71,3 +90,6 @@ método `fetch_day()` e trocar a fonte; banco, análises, relatórios e dashboar
 - [Documentação do Garth (aviso de descontinuação)](https://garth.readthedocs.io/)
 - [python-garminconnect — issue #332 (mudança de autenticação)](https://github.com/cyberjunky/python-garminconnect/issues/332)
 - [PyPI — garminconnect](https://pypi.org/project/garminconnect/)
+- [Repositório oficial garmin/connect-personal-api-python](https://github.com/garmin/connect-personal-api-python)
+- [PyPI — garmin-connect-personal-api-python](https://pypi.org/project/garmin-connect-personal-api-python/)
+- [Garmin — visão geral da Personal API](https://developer.garmin.com/gc-developer-program/personal/personal-api)

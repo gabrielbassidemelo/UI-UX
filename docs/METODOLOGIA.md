@@ -18,8 +18,11 @@ alertas. Medições de vestíveis são estimativas: não são exames clínicos e
 - **Persistente:** a média dos últimos 7 dias está a ≥ 1,25 desvio da linha de base **anterior** a esses
   7 dias **e** pelo menos 4 dos 7 dias estão fora da faixa no mesmo sentido. Médias móveis de 7 dias contra
   a base individual são a abordagem recomendada para HRV (Plews et al., 2013; Buchheit, 2014).
-- Calibração: em 150 dias simulados estáveis, a regra marcou 0–3% dos dias como persistentes, e detectou
-  o período simulado de estresse em todos os indicadores principais.
+- Calibração **somente em simulação**: em 150 dias sintéticos estáveis, a regra marcou 0–3% dos dias como
+  persistentes e detectou o período simulado de estresse nos indicadores principais. A simulação usa ruído
+  gaussiano com uma oscilação lenta, bem mais simples que dados reais (viagens, doenças, álcool, trocas de
+  rotina, falhas do sensor). Esse número **não é taxa de falso alarme em uso real nem evidência de eficácia
+  clínica**; a taxa real só poderá ser estimada depois de meses de dados seus.
 
 ## Recuperação
 Sete sinais comparados à base: HRV, FC de repouso, pontuação e duração do sono, Body Battery máximo,
@@ -57,3 +60,8 @@ afirmar causalidade.
 - Watson NF et al. Recommended amount of sleep for a healthy adult: a joint consensus statement of the AASM and SRS. *Sleep*. 2015;38(6):843-844.
 - Hirshkowitz M et al. National Sleep Foundation's sleep time duration recommendations. *Sleep Health*. 2015;1(1):40-43.
 - Chinoy ED et al. Performance of seven consumer sleep-tracking devices compared with polysomnography. *Sleep*. 2021;44(5):zsaa291.
+
+## Fase 2
+Os métodos acrescentados (EWMA, bases de 7/28/90 dias, CUSUM, backtesting, balanço energético, regras de
+treino, nutrição e suplementação, experimentos individuais) estão descritos em `ARQUITETURA.md`, e as
+referências, em `EVIDENCIAS.md`.

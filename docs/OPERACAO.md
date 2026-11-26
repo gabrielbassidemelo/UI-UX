@@ -1,4 +1,10 @@
-# Instalação, operação e recuperação de falhas
+# Instalação, operação e recuperação de falhas (fase 1)
+
+> **Documento da fase 1, mantido como referência para instalação em computador próprio.** A forma
+> recomendada agora é a VM gratuita descrita em `IMPLANTACAO.md`, com a API oficial da Garmin. Onde este
+> texto falar em `healthmon login` com e-mail e senha, isso vale apenas para a integração não oficial, que
+> está desativada por padrão; na API oficial usa-se a chave pessoal em `secrets.env` e
+> `healthmon validar-garmin`.
 
 ## Onde rodar
 O sistema precisa de uma máquina **ligada continuamente** para coletar os dados e gerar os relatórios nos
