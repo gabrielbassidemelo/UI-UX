@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS (launchd). Instalar:
+  cp deploy/com.healthmon.plist ~/Library/LaunchAgents/
+  launchctl load ~/Library/LaunchAgents/com.healthmon.plist
+  Ajuste SEU_USUARIO e o caminho do venv. Em Ajustes > Bateria, evite que o Mac durma
+  (ou use "pmset" / "Impedir suspensão automática quando a tela estiver desligada"). -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.healthmon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/SEU_USUARIO/healthmon/.venv/bin/healthmon</string>
+    <string>executar</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>HEALTHMON_HOME</key><string>/Users/SEU_USUARIO/.healthmon</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>Umask</key><integer>63</integer>
+  <key>StandardErrorPath</key><string>/Users/SEU_USUARIO/.healthmon/launchd.err</string>
+</dict>
+</plist>

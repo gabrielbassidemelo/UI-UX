@@ -1,0 +1,28 @@
+# Uso:
+#   docker compose run --rm healthmon healthmon init
+#   docker compose run --rm healthmon healthmon login          # uma vez (pede e-mail/senha/MFA)
+#   docker compose run --rm healthmon healthmon senha-dashboard
+#   docker compose run --rm healthmon healthmon historico --dias 90
+#   docker compose up -d
+# IA local opcional:  docker compose --profile ia-local up -d   e  [ia] modo = "local", ollama_url = "http://ollama:11434"
+services:
+  healthmon:
+    build: .
+    image: healthmon:local
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:8765:8765"   # só localhost; acesso pelo iPhone via Tailscale (ver docs/OPERACAO.md)
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ia-local"]
+    restart: unless-stopped
+    volumes:
+      - ./ollama:/root/.ollama
+    # sem portas publicadas: acessível apenas pelo healthmon na rede interna do compose

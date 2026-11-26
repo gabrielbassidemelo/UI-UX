@@ -1,0 +1,82 @@
+# Configuração do healthmon. Copiada para $HEALTHMON_HOME/config.toml por `healthmon init`.
+# Segredos (senhas, tokens, chaves) NÃO ficam aqui: ficam em secrets.env (permissão 600).
+
+[perfil]
+fuso_horario = "America/Sao_Paulo"
+peso_kg = 88.0
+
+[coleta]
+# Intervalo de sincronização automática (minutos) entre 05h e 23h.
+intervalo_min = 120
+# Pausa entre chamadas à Garmin (segundos), para não sobrecarregar o serviço.
+pausa_entre_chamadas_s = 1.5
+# Dias recarregados a cada sincronização (dados podem chegar atrasados).
+dias_reprocessar = 2
+
+[relatorios]
+diario = "08:00"
+noturno = "22:00"
+semanal_dia = "sun"
+semanal_hora = "19:00"
+mensal_dia = 1
+mensal_hora = "09:00"
+# Se o sono da noite ainda não sincronizou às 08h: nova tentativa a cada N minutos, até M vezes.
+retentativa_intervalo_min = 30
+retentativa_max = 4
+
+[analise]
+# Janela (dias) para a linha de base individual.
+janela_base_dias = 28
+# Mínimo de dias válidos para considerar a linha de base confiável.
+minimo_dias_base = 10
+
+[ia]
+# "regras" = só o motor local determinístico (padrão, nenhum dado sai da máquina)
+# "local"  = Ollama rodando na sua máquina (nenhum dado sai da máquina)
+# "nuvem"  = Claude (Anthropic). Exige consentimento explícito: `healthmon ia-nuvem consentir`
+modo = "regras"
+ollama_url = "http://127.0.0.1:11434"
+ollama_modelo = "qwen2.5:7b-instruct"
+nuvem_modelo = "claude-opus-5-5"
+
+[notificacoes]
+# Canais: "telegram", "email". Lista vazia = nenhuma notificação externa.
+canais = []
+# "minimo": a mensagem só avisa que há relatório/alerta, sem números de saúde.
+# "completo": inclui o resumo do relatório (dados de saúde passam pelo Telegram/e-mail).
+nivel_conteudo = "minimo"
+# Link do dashboard incluído nas mensagens (ex.: https://seu-pc.tailnet.ts.net)
+url_dashboard = ""
+# Horário silencioso: alertas gerados nesse intervalo esperam até o fim dele.
+silencio_inicio = "22:30"
+silencio_fim = "07:00"
+# Limites anti-excesso
+max_alertas_dia = 2
+cooldown_horas = 72
+email_de = ""
+email_para = ""
+smtp_host = ""
+smtp_porta = 587
+smtp_usuario = ""
+
+[alertas]
+# Cada alerta pode ser ligado/desligado. Critérios são relativos à SUA linha de base, não limites clínicos.
+hrv_queda_persistente = true
+fc_repouso_aumento = true
+sono_deterioracao = true
+recuperacao_insuficiente = true
+estresse_elevado = true
+falha_sincronizacao = true
+
+[dashboard]
+host = "127.0.0.1"
+porta = 8765
+# true quando servido via HTTPS (ex.: Tailscale Serve) — ativa cookie Secure e HSTS.
+https = false
+sessao_dias = 30
+
+[backup]
+diretorio = ""          # vazio = $HEALTHMON_HOME/backups
+manter_diarios = 14
+manter_semanais = 8
+hora = "03:30"

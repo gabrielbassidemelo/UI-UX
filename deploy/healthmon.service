@@ -1,0 +1,24 @@
+# systemd (Linux / Raspberry Pi). Instalar:
+#   sudo cp deploy/healthmon.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#   sudo systemctl enable --now healthmon
+# Ajuste User e os caminhos abaixo.
+[Unit]
+Description=healthmon - monitoramento pessoal de saude (Garmin)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=SEU_USUARIO
+Environment=HEALTHMON_HOME=/home/SEU_USUARIO/.healthmon
+ExecStart=/home/SEU_USUARIO/healthmon/.venv/bin/healthmon executar
+Restart=on-failure
+RestartSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/SEU_USUARIO/.healthmon
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

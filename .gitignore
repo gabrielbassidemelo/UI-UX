@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# Dados pessoais e segredos NUNCA vão para o repositório
+data/
+*.db
+*.db-wal
+*.db-shm
+secrets.env
+*.hmbk
+tokens/
+.env
+*.egg-info/

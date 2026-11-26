@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Saúde">
+<meta name="robots" content="noindex,nofollow">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+<title>Saúde e Recuperação</title>
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>Saúde e Recuperação</h1>
+    <p id="subtitle" class="muted">Carregando…</p>
+  </div>
+  <div class="top-actions">
+    <button id="btn-sync" class="icon-btn" title="Sincronizar agora" aria-label="Sincronizar agora">⟳</button>
+    <button id="btn-theme" class="icon-btn" title="Alternar tema" aria-label="Alternar tema">◐</button>
+  </div>
+</header>
+<div id="demo-banner" class="banner" hidden>DADOS SIMULADOS — demonstração, não são dados reais.</div>
+
+<main>
+  <section id="tab-hoje" class="tab active" aria-label="Hoje">
+    <div id="recovery" class="card recovery"></div>
+    <div id="alerts-today"></div>
+    <h2>Indicadores de hoje</h2>
+    <div id="kpis" class="grid"></div>
+    <div id="attention" class="card"></div>
+  </section>
+
+  <section id="tab-graficos" class="tab" aria-label="Gráficos">
+    <div class="filters" role="group" aria-label="Período">
+      <button data-days="7">7 dias</button><button data-days="30" class="on">30 dias</button>
+      <button data-days="90">90 dias</button><button data-days="365">365 dias</button>
+    </div>
+    <label class="select">Indicador
+      <select id="metric-select"></select>
+    </label>
+    <div class="card chart-card"><div class="chart-wrap"><canvas id="main-chart"></canvas></div>
+      <p id="chart-note" class="muted small"></p></div>
+    <h2>Sono — fases</h2>
+    <div class="card chart-card"><div class="chart-wrap short"><canvas id="sleep-chart"></canvas></div></div>
+    <h2>Tendências e associações</h2>
+    <div id="insights" class="card"></div>
+  </section>
+
+  <section id="tab-comparar" class="tab" aria-label="Comparar">
+    <div class="filters" role="group" aria-label="Período de comparação">
+      <button data-cmp="7" class="on">Semana</button><button data-cmp="30">30 dias</button>
+      <button data-cmp="90">90 dias</button><button data-cmp="365">Ano</button>
+    </div>
+    <p id="cmp-period" class="muted small"></p>
+    <div id="compare" class="card"></div>
+    <h2>Atividades</h2>
+    <div id="activities" class="card"></div>
+  </section>
+
+  <section id="tab-relatorios" class="tab" aria-label="Relatórios">
+    <div class="filters" role="group" aria-label="Tipo de relatório">
+      <button data-kind="" class="on">Todos</button><button data-kind="diario">Diário</button>
+      <button data-kind="noturno">Noturno</button><button data-kind="semanal">Semanal</button>
+      <button data-kind="mensal">Mensal</button>
+    </div>
+    <div id="report-list"></div>
+    <article id="report-view" class="card report" hidden></article>
+  </section>
+
+  <section id="tab-sistema" class="tab" aria-label="Sistema">
+    <h2>Alertas</h2>
+    <div id="alert-list" class="card"></div>
+    <h2>Indicadores fornecidos pelo seu dispositivo (30 dias)</h2>
+    <div id="availability" class="card"></div>
+    <h2>Sincronização e privacidade</h2>
+    <div id="system" class="card"></div>
+    <button id="btn-logout" class="secondary">Sair</button>
+    <p id="disclaimer" class="muted small"></p>
+  </section>
+</main>
+
+<nav class="tabs" aria-label="Navegação">
+  <button data-tab="hoje" class="on"><span>●</span>Hoje</button>
+  <button data-tab="graficos"><span>▲</span>Gráficos</button>
+  <button data-tab="comparar"><span>⇄</span>Comparar</button>
+  <button data-tab="relatorios"><span>☰</span>Relatórios</button>
+  <button data-tab="sistema"><span>⚙</span>Sistema</button>
+</nav>
+<script src="/static/vendor/chart.umd.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
