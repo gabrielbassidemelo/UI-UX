@@ -137,7 +137,7 @@ def daily_plan(db: Database, cfg: Config, day: date | None = None, record: bool 
         what, inten = f"{c['tipo']} por {c['duracao_min']} min", c["intensidade"] + (". " + c["ajuste"] if c.get("ajuste") else "")
     else:
         what, inten = session["titulo"] + ". " + session.get("texto", ""), "Leve ou nenhuma."
-    prio = {"forca": "Musculação", "cardio": "Cardio", "recuperacao": "Recuperação", "descanso": "Recuperação",
+    prio = {"bloqueado": "Plano suspenso pela triagem de saúde", "forca": "Musculação", "cardio": "Cardio", "recuperacao": "Recuperação", "descanso": "Recuperação",
             "sem_plano": "Defina um plano"}[session["tipo"]]
     items.append(_item("Qual treino é mais adequado e com que intensidade?", f"Prioridade de hoje: {prio}. {what}",
                        f"Intensidade: {inten} Regra aplicada: {ready['regra']}", ready["sinais"] or ["Sem sinais desfavoráveis."],
@@ -145,7 +145,7 @@ def daily_plan(db: Database, cfg: Config, day: date | None = None, record: bool 
                        "O ajuste considera vários sinais e a sua percepção; se você se sentir diferente do indicado, a sua "
                        "percepção e o bom senso prevalecem. " + tr.STOP_SYMPTOMS, cfg))
     # 5. nutrição
-    tgt = nut.active_targets(db)
+    tgt = nut.effective_targets(db, cfg, day)
     rev = nut.review_targets(db, cfg, day)
     if tgt:
         items.append(_item("Qual é minha meta nutricional?",

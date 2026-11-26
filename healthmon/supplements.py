@@ -213,7 +213,7 @@ def evaluate(db: Database, cfg: Config, day: date | None = None) -> dict[str, An
     conds = [_n(c) for c in p.get("condicoes_saude", [])]
     diet = " ".join(_n(r) for r in p.get("restricoes_alimentares", []))
     goal = p["objetivo"]
-    intake, target = _avg_intake(db, day), nut.active_targets(db)
+    intake, target = _avg_intake(db, day), nut.effective_targets(db, cfg, day)
     w, _ = prof.current_weight(db, cfg, day.isoformat())
     in_use = {r["key"]: r for r in db.q("SELECT * FROM user_supplements WHERE status='em_uso'")}
     out = []

@@ -88,8 +88,8 @@ def evaluate_key_expiry(cfg: Config, db: Database) -> int | None:
            else f"A chave pessoal da Garmin expira em {st['dias']} dia(s) ({st['expira_em']}).")
     return db.add_alert(date.today().isoformat(), kind, "atencao", "Chave da Garmin perto do vencimento"
                         if st["nivel"] != "expirada" else "Chave da Garmin expirada",
-                        msg + " Gere uma nova em connect.garmin.com/app/settings/personalApiToken, grave em secrets.env "
-                        "e atualize [garmin] chave_expira_em.", st)
+                        msg + " Gere uma nova em connect.garmin.com/app/settings/personalApiToken e troque-a no "
+                        "servidor com 'healthmon trocar-chave-garmin'.", st)
 
 
 def evaluate_sync(cfg: Config, db: Database, auth_error: bool = False) -> int | None:
@@ -102,7 +102,7 @@ def evaluate_sync(cfg: Config, db: Database, auth_error: bool = False) -> int | 
             return db.add_alert(date.today().isoformat(), "falha_sincronizacao", "atencao",
                                 "Acesso à Garmin recusado",
                                 "A chave pessoal está ausente, inválida ou expirada. Gere uma nova chave no site da "
-                                "Garmin e grave em secrets.env no servidor (GARMIN_PERSONAL_API_KEY).", {})
+                                "Garmin e troque-a no servidor com 'healthmon trocar-chave-garmin' (docs/IMPLANTACAO.md).", {})
         return None
     hist = db.sync_history(3)
     last_ok = db.last_successful_sync()
@@ -113,7 +113,7 @@ def evaluate_sync(cfg: Config, db: Database, auth_error: bool = False) -> int | 
     if (stale or three_fail) and hist and _cooldown_ok(db, "falha_sincronizacao", cooldown):
         return db.add_alert(date.today().isoformat(), "falha_sincronizacao", "atencao",
                             TITLES["falha_sincronizacao"],
-                            "Nenhuma sincronização bem-sucedida recente. Verifique a internet do computador, "
-                            "e abra o Garmin Connect no iPhone para enviar os dados da pulseira.",
+                            "Nenhuma sincronização bem-sucedida recente. Abra o Garmin Connect no iPhone com a pulseira por "
+                            "perto; se persistir, veja Configurações › Histórico de execuções.",
                             {"ultima_ok": last_ok, "ultimos": [h["status"] for h in hist]})
     return None

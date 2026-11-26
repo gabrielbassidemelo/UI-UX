@@ -339,9 +339,9 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
     @app.post("/api/nutricao/sugerir")
     async def sugerir(request: Request):
         b = await body(request)
-        t = nut.active_targets(db)
+        t = nut.effective_targets(db, cfg, today())
         if not t:
-            raise HTTPException(400, "Confirme uma meta nutricional primeiro")
+            raise HTTPException(400, "Não há meta nutricional em vigor (não confirmada ou suspensa pela triagem de saúde).")
         ids = guard(lambda: [int(i) for i in b.get("alimentos", [])][:25])
         return nut.suggest_day(db, t, ids)
 
@@ -563,6 +563,9 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
     def push_test():
         from ..push import send_push
         try:
-            return {"enviados": send_push(cfg, db, "healthmon", "Notificações ativadas neste aparelho.")}
+            n = send_push(cfg, db, "healthmon", "Notificações ativadas neste aparelho.")
+            ativo = "push" in (cfg.get("notificacoes", "canais", ["push"]) or [])
+            return {"enviados": n, "canal_push_ativo": ativo,
+                    "aviso": None if ativo else "O canal push está desligado em [notificacoes] canais: relatórios e alertas automáticos NÃO serão enviados."}
         except Exception as e:  # noqa: BLE001 — mensagem genérica: detalhes de rede não vão para o cliente
             raise HTTPException(503, "Push indisponível: ative as notificações neste aparelho e confira o servidor.") from e

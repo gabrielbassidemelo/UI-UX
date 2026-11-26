@@ -151,8 +151,14 @@ class Service:
     def job_backup(self) -> str:
         """Backup diário cifrado (RPO de 24 h): cópia consistente, verificação e envio para fora da VM.
         Qualquer falha vira alerta; nenhuma falha é silenciosa."""
+        import shutil
         from . import offsite
         from .backup import verify_backup
+        free = shutil.disk_usage(self.cfg.home).free
+        if free < 1024 ** 3:
+            self._backup_alert("disco_cheio", "Pouco espaço em disco no servidor",
+                               f"Restam {free // 1024 ** 2} MB livres. Com o disco cheio, a coleta e os backups param.",
+                               {"livre_mb": free // 1024 ** 2})
         try:
             p = create_backup(self.cfg)
             verify_backup(self.cfg, p)      # estrutura e checksum (HMBK2) ou restauração de teste (HMBK1)
@@ -216,6 +222,16 @@ class Service:
 
         def has(kind: str) -> bool:
             return bool(self.db.q1("SELECT 1 FROM reports WHERE kind=? AND period_end=?", (kind, today)))
+        # backup perdido por reinício: o agendador fica só em memória, então recupera-se aqui
+        try:
+            import time
+            from .backup import latest_backup
+            last = latest_backup(self.cfg)
+            if self.db.q1("SELECT 1 FROM daily_metrics LIMIT 1") and (last is None or time.time() - last.stat().st_mtime > 26 * 3600):
+                self.job_backup()
+                done.append("backup")
+        except Exception:  # noqa: BLE001 — já registrado em job_runs e em alerta
+            pass
 
         def past(key: str, default: str) -> bool:
             h, m = self.cfg.get("relatorios", key, default).split(":")

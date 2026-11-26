@@ -173,7 +173,23 @@ def compute_targets(db: Database, cfg: Config, day: date | None = None) -> dict[
 
 
 def active_targets(db: Database) -> dict[str, Any] | None:
+    """Meta gravada, SEM reavaliar a triagem. Para exibir ou usar, prefira effective_targets."""
     return db.get_json("meta_nutricional")
+
+
+def effective_targets(db: Database, cfg: Config, day: date | None = None) -> dict[str, Any] | None:
+    """Meta em vigor HOJE: a triagem é reavaliada a cada uso. Uma meta confirmada antes de um bloqueio
+    (ex.: transtorno alimentar, doença renal, gestação, risco nutricional) deixa de valer imediatamente."""
+    from . import safety
+    t = active_targets(db)
+    if not t:
+        return None
+    scr = safety.screen(db, cfg, day)
+    if safety.blocked(scr, "metas_nutricionais"):
+        return None
+    if safety.blocked(scr, "deficit") and (t.get("balanco_kcal") or 0) < 0:
+        return None
+    return t
 
 
 def review_targets(db: Database, cfg: Config, day: date | None = None) -> dict[str, Any]:
@@ -361,7 +377,7 @@ def log_meal_text(db: Database, day: str, text: str, time: str | None = None) ->
 def day_summary(db: Database, cfg: Config, day: date) -> dict[str, Any]:
     meals = db.q("SELECT * FROM meals WHERE date=? ORDER BY COALESCE(time,'99'), id", (day.isoformat(),))
     tot = {k: round(sum(m[k] or 0 for m in meals), 1) for k in ("kcal", "protein_g", "carb_g", "fat_g", "fiber_g")}
-    target = active_targets(db)
+    target = effective_targets(db, cfg, day)
     ck = db.q1("SELECT water_ml FROM checkins WHERE date=?", (day.isoformat(),))
     out: dict[str, Any] = {"dia": day.isoformat(), "refeicoes": meals, "total": tot, "meta": target,
                            "agua_ml": (ck or {}).get("water_ml")}

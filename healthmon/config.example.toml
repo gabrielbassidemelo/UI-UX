@@ -53,7 +53,7 @@ nuvem_modelo = "claude-opus-5-5"
 
 [notificacoes]
 # Canais: "push" (PWA no iPhone, recomendado), "telegram", "email". Lista vazia = nenhuma.
-canais = []
+canais = ["push"]
 # "minimo": a mensagem só avisa que há relatório/alerta, sem números de saúde.
 # "completo": inclui o resumo do relatório (dados de saúde passam pelo Telegram/e-mail).
 nivel_conteudo = "minimo"

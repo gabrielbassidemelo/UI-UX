@@ -349,7 +349,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "backup-externo":
         from . import offsite
         if args.contar:
-            print(len(offsite.list_backups(cfg)))
+            try:
+                print(len(offsite.list_backups(cfg)))
+            except offsite.OffsiteError as e:
+                print(f"Não foi possível listar a cópia externa: {e}", file=sys.stderr)
+                return 1
             return 0
         r = offsite.status(cfg) if args.status else offsite.sync_latest(cfg)
         print(json.dumps(r, ensure_ascii=False, indent=1))

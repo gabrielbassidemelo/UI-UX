@@ -41,6 +41,8 @@ if [ "$MODO" = "--recuperar" ]; then
   say "5 Recuperação: escolher e restaurar o backup (pede a sua chave de recuperação)"
   echo "Nenhuma chave nova é gerada e nenhum backup é enviado antes de a restauração terminar."
   $SEC restaurar
+  echo "Conferindo que os próximos backups funcionam com a mesma chave: backup → envio…"
+  $RUN backup >/dev/null && $RUN backup-externo || { echo "O backup após a restauração falhou; resolva antes de seguir."; exit 1; }
 else
   say "4 Chave de recuperação dos backups"
   if sudo test -s data/recovery_public.key; then

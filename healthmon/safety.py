@@ -94,8 +94,23 @@ def triage_answered(checkin: dict[str, Any] | None) -> bool:
 
 
 def screen(db: Database, cfg: Config, day: date | None = None) -> dict[str, Any]:
-    """Resultado da triagem: o que falta, sinalizadores e bloqueios por área (com o motivo)."""
+    """Resultado da triagem: o que falta, sinalizadores e bloqueios por área (com o motivo).
+    Os motivos de saúde têm precedência; por último entra a regra do período de observação."""
+    from . import calibration
     day = day or date.today()
+    out = _screen(db, cfg, day)
+    stg = calibration.stage(db, day)
+    out["estagio"] = stg["estagio"]
+    if stg["estagio"] == "observacao":
+        # Primeiros dias: só observação e orientações gerais de baixo risco. Nada de déficit calórico nem treino intenso.
+        why = (f"Período de observação ({stg['dias_validos']} de 7 dias com dados da pulseira): por enquanto o sistema só "
+               "descreve seus dados e dá orientações gerais. Déficit calórico e treino intenso ficam suspensos.")
+        for area in ("deficit", "treino_intenso"):
+            out["bloqueios"].setdefault(area, why)
+    return out
+
+
+def _screen(db: Database, cfg: Config, day: date) -> dict[str, Any]:
     p = prof.get(db)
     b: dict[str, str] = {}
     avisos: list[str] = []

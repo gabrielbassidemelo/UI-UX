@@ -97,6 +97,7 @@ def test_adaptation_flag_is_hypothesis_with_alternative(cfg, db):
 
 # ------------------------------------------------------------- nutrição: limites
 def test_deficit_floor_and_caps(cfg, db):
+    populate(db, 30, END, stress_last=0)          # fora do período de observação
     _setup(db, **{"sexo": "feminino", "altura_cm": 155})
     prof.record_weight(db, END.isoformat(), 52)
     t = nut.compute_targets(db, cfg, END)
@@ -107,6 +108,7 @@ def test_deficit_floor_and_caps(cfg, db):
 
 # ------------------------------------------- achados da revisão científica independente
 def test_underweight_never_gets_deficit_or_lower_weight_goal(cfg, db):
+    populate(db, 30, END, stress_last=0)          # fora do período de observação
     _setup(db, **{"sexo": "feminino", "altura_cm": 165})
     prof.record_weight(db, END.isoformat(), 42)                       # IMC 15,4
     t = nut.compute_targets(db, cfg, END)
@@ -251,6 +253,7 @@ def test_experiment_analysis_is_by_block_and_null_is_rarely_significant(cfg, db)
 
 
 def test_fast_loss_reduces_deficit(cfg, db):
+    populate(db, 30, END, stress_last=0)          # fora do período de observação
     _setup(db)
     for i in range(28):
         prof.record_weight(db, (END - timedelta(days=27 - i)).isoformat(), 90 - 1.1 * i / 7)

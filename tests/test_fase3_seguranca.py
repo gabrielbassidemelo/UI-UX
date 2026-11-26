@@ -336,3 +336,78 @@ def test_observation_stage_emits_no_trend_alerts_and_gaps_fall_back(cfg, db):
     populate(db, 60, END - timedelta(days=20), stress_last=0)       # histórico antigo, 14 dias recentes quase vazios
     s = calibration.stage(db, END)
     assert s["dias_validos"] >= 28 and s["estagio"] == "linha_de_base" and s["observacao"]
+
+
+# ------------------------------------------------------------ bloqueio posterior a uma confirmação (revisão de arquitetura)
+@pytest.mark.parametrize("flags,areas", [({"transtorno_alimentar": True}, {"nutricao"}),
+                                         ({"cirurgia_recente": True}, {"treino"}),
+                                         ({"gestante_ou_lactante": True}, {"nutricao", "treino"}),
+                                         ({"doenca_renal": True}, {"nutricao"})])
+def test_plan_and_targets_confirmed_before_a_block_stop_applying_everywhere(cfg, db, flags, areas):
+    from healthmon import reports
+    from healthmon.demo import populate_phase2
+    populate(db, 60, END, stress_last=0)
+    populate_phase2(db, cfg, 60, END)                         # plano e meta confirmados, com números
+    old = nut.active_targets(db)
+    assert old and tr.get_plan(db) and nut.effective_targets(db, cfg, END)
+    prof.update(db, flags)                                    # a condição é informada DEPOIS
+    plan = planner.daily_plan(db, cfg, END, record=False)
+    text = json.dumps(plan, ensure_ascii=False)
+    reports.PREVIEW_ONLY = True
+    try:
+        md = reports.daily(cfg, db, END).doc.markdown()
+    finally:
+        reports.PREVIEW_ONLY = False
+    if "nutricao" in areas:
+        assert nut.effective_targets(db, cfg, END) is None
+        assert nut.day_summary(db, cfg, END)["meta"] is None
+        for where in (text, md):
+            assert f"{old['kcal']} kcal" not in where and f"proteína {old['proteina_g']} g" not in where
+    if "treino" in areas:
+        s = tr.todays_session(db, cfg, END)
+        assert s["tipo"] == "bloqueado" and "sessao" not in s and "cardio" not in s
+        assert plan["sessao"]["tipo"] == "bloqueado" and "Superiores" not in text and "Inferiores" not in text
+        assert "Musculação" not in md
+
+
+def test_intensity_block_after_confirmation_removes_hiit_and_progression(cfg, db):
+    from healthmon.demo import populate_phase2
+    populate(db, 60, END, stress_last=0)
+    populate_phase2(db, cfg, 60, END)
+    prof.update(db, {"doenca_cardiovascular": True})
+    for i in range(7):
+        d = END - timedelta(days=i)
+        db.insert("checkins", {"date": d.isoformat(), "perceived_recovery": 9, "triagem": json.dumps({k: False for k in safety.SYMPTOMS})}, upsert_on="date")
+        s = tr.todays_session(db, cfg, d)
+        assert "hiit" not in json.dumps(s, ensure_ascii=False).lower().replace("não propõe hiit", "")
+        if s["tipo"] == "forca":
+            assert all(e["rir"] >= 3 and e["progressao"]["acao"] != "aumentar" for e in s["sessao"]["exercicios"])
+
+
+def test_observation_stage_suspends_deficit_and_intense_training(cfg, db):
+    populate(db, 4, END, stress_last=0)
+    person(db)
+    scr = safety.screen(db, cfg, END)
+    assert scr["estagio"] == "observacao" and "observação" in scr["bloqueios"]["deficit"] and "treino_intenso" in scr["bloqueios"]
+    assert nut.compute_targets(db, cfg, END).get("balanco_kcal", 0) >= 0
+    assert not has_hiit(tr.build_plan(db, cfg, END))
+
+
+def test_zones_need_measured_resting_hr_and_push_is_default_channel(cfg, db):
+    person(db)
+    z = tr.hr_zones(db, cfg, END) if hasattr(tr, "hr_zones") else None
+    if z is not None:
+        assert z["disponivel"] is False                       # sem FC de repouso medida não há valor presumido
+    from healthmon import notify
+    assert cfg.get("notificacoes", "canais") == ["push"]
+    db.add_alert(END.isoformat(), "falha_backup", "atencao", "Backup diário falhou", "teste", {})
+    sent = []
+    import healthmon.push as push
+    orig = push.send_push
+    push.send_push = lambda c, d, subj, body: sent.append(subj) or 1
+    try:
+        from datetime import datetime
+        assert notify.dispatch_alerts(cfg, db, now=datetime(2026, 11, 20, 12, 0, tzinfo=cfg.tz)) == 1
+    finally:
+        push.send_push = orig
+    assert sent and "Backup" in sent[0]                       # alerta operacional chega com o título, sem limite diário

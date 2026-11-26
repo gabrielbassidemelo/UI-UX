@@ -18,6 +18,8 @@ direto para o app Senhas do iPhone.
    existem nela. O cadastro pede cartão para verificação de identidade. **Não converta a conta para
    Pay As You Go** e não crie nada além do descrito aqui.
 2. **Tailscale** (tailscale.com, plano Personal gratuito). Instale o app Tailscale no iPhone e entre.
+   No painel da Tailscale (login.tailscale.com → *DNS*), ligue **MagicDNS** e **HTTPS Certificates**: sem isso a
+   etapa 10 da configuração não consegue publicar o painel com HTTPS.
 
 ## 2. 🔶 Criar a máquina virtual
 No console da Oracle: *Compute → Instances → Create instance*.
@@ -93,6 +95,8 @@ Sem backup externo funcionando o script **não pede** a chave da Garmin.
    Compartilhar → *Adicionar à Tela de Início*. Abra pelo ícone e, em Configurações, ative as notificações.
 2. **Teste de notificação:** em Mais → Configurações → Notificações no iPhone → *Enviar teste*. Bloqueie a tela e confirme que
    chega. (No terminal: `docker compose run --rm healthmon healthmon testar-notificacao`.)
+   O canal de notificação padrão é o push do próprio painel. Relatórios e alertas automáticos (inclusive falha de
+   backup e chave da Garmin perto de vencer) só chegam depois que você tocar em *Ativar neste aparelho*.
 3. **Perfil e triagem de saúde:** responda todas as perguntas. Sem elas o sistema só descreve os dados.
 4. **Histórico:** `docker compose run --rm healthmon healthmon historico --dias 365`
    (pode ser repetido; continua de onde parou se o teto diário de requisições for atingido).

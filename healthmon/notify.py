@@ -55,7 +55,7 @@ def send_email(cfg: Config, subject: str, text: str) -> None:
 
 def send(cfg: Config, subject: str, text: str, db: Database | None = None) -> list[str]:
     sent = []
-    for ch in cfg.get("notificacoes", "canais", []) or []:
+    for ch in cfg.get("notificacoes", "canais", ["push"]) or []:
         try:
             if ch == "push":
                 if db is None:
@@ -90,7 +90,7 @@ def notify_report(cfg: Config, kind: str, title: str, summary: str, db: Database
 
 def dispatch_alerts(cfg: Config, db: Database, now: datetime | None = None) -> int:
     """Envia alertas pendentes respeitando horário silencioso e limite diário."""
-    if not cfg.get("notificacoes", "canais", []):
+    if not cfg.get("notificacoes", "canais", ["push"]):
         return 0
     now = now or datetime.now(cfg.tz)
     if in_quiet_hours(cfg, now):
@@ -101,7 +101,7 @@ def dispatch_alerts(cfg: Config, db: Database, now: datetime | None = None) -> i
     full = cfg.get("notificacoes", "nivel_conteudo", "minimo") == "completo"
     for a in db.pending_alerts():
         is_sync = (a["kind"] == "falha_sincronizacao" or a["kind"].startswith("chave_garmin")
-                   or a["kind"] in ("falha_backup", "falha_backup_externo", "backup_externo_ausente"))   # operacionais: sem limite diário
+                   or a["kind"] in ("falha_backup", "falha_backup_externo", "backup_externo_ausente", "disco_cheio"))   # operacionais: sem limite diário
         if not is_sync and db.count_notified_since(since) >= limit:
             break
         body = a["message"] if (full or is_sync) else "Há um novo alerta no dashboard."

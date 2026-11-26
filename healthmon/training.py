@@ -170,7 +170,9 @@ def hr_zones(db: Database, cfg: Config, day: date | None = None) -> dict[str, An
     else:
         return {"disponivel": False, "faltam": ["nascimento ou fc_max_medida"]}
     rows = db.q("SELECT resting_hr FROM daily_metrics WHERE resting_hr IS NOT NULL ORDER BY date DESC LIMIT 14")
-    rest = sorted(r["resting_hr"] for r in rows)[len(rows) // 2] if rows else 60
+    if not rows:
+        return {"disponivel": False, "faltam": ["FC de repouso medida pela pulseira (nenhum valor presumido é usado)"]}
+    rest = sorted(r["resting_hr"] for r in rows)[len(rows) // 2]
     names = [("Z1", .3, .4, "muito leve, recuperação"), ("Z2", .4, .6, "moderado: dá para conversar"),
              ("Z3", .6, .75, "vigoroso sustentável"), ("Z4", .75, .9, "forte, perto do limiar"), ("Z5", .9, 1.0, "máximo")]
     meds = " ".join(str(m).lower() for m in p.get("medicamentos", []))
@@ -476,6 +478,14 @@ def todays_session(db: Database, cfg: Config, day: date) -> dict[str, Any]:
                    "importante ou não melhorar, procure avaliação profissional antes de retomar.")
         out.update(tipo="descanso", titulo="Não treine hoje", texto=txt)
         return out
+    # A triagem é reavaliada TODO dia: um plano confirmado antes de um bloqueio deixa de valer.
+    from . import safety
+    scr = safety.screen(db, cfg, day)
+    stop = safety.blocked(scr, "treino_plano")
+    if stop:
+        out.update(tipo="bloqueado", titulo="Plano de treino suspenso", texto=stop, bloqueio=stop)
+        return out
+    no_intense = safety.blocked(scr, "treino_intenso")
     if not plan:
         out.update(tipo="sem_plano", titulo="Sem plano de treino ativo",
                    texto="Complete o perfil e confirme um plano em Treino.")
@@ -490,9 +500,10 @@ def todays_session(db: Database, cfg: Config, day: date) -> dict[str, Any]:
         idx = rest_days.index(day.weekday())
         if idx < len(cardio) and ready["nivel"] != "recuperacao":
             c = dict(cardio[idx])
-            if c["tipo"] == "HIIT" and (ready["nivel"] != "normal" or not ready["triagem_respondida"]):
+            if c["tipo"] == "HIIT" and (ready["nivel"] != "normal" or not ready["triagem_respondida"] or no_intense):
                 c = {"tipo": "Aeróbico Z2", "duracao_min": 30, "intensidade": "Zona 2: esforço moderado", "objetivo": "Base aeróbica",
-                     "refs": ["garber2011"], "ajuste": ("HIIT trocado por Z2: recuperação abaixo do ideal." if ready["nivel"] != "normal"
+                     "refs": ["garber2011"], "ajuste": (no_intense if no_intense else
+                                                       "HIIT trocado por Z2: recuperação abaixo do ideal." if ready["nivel"] != "normal"
                                                        else "HIIT só é liberado depois que você responde a triagem de sintomas do dia (check-in).")}
             out.update(tipo="cardio", titulo=c["tipo"], cardio=c)
         else:
@@ -507,6 +518,9 @@ def todays_session(db: Database, cfg: Config, day: date) -> dict[str, Any]:
         changes.append("Responda a triagem de sintomas no check-in de hoje: sem ela o sistema não sugere aumento de carga nem HIIT.")
     elif not stage_ok:
         changes.append("Período de calibração: o sistema ainda não sugere aumento de carga; registre as cargas usadas.")
+    if no_intense:
+        rir_adj = max(rir_adj, 0)
+        changes.append(no_intense + " Hoje: sem aumento de carga e com pelo menos 3 repetições de reserva.")
     if ready["nivel"] == "recuperacao":
         out.update(tipo="recuperacao", titulo="Recuperação ativa no lugar de " + session["nome"],
                    texto="Vários sinais independentes indicam recuperação insuficiente: troque por caminhada leve "
@@ -520,8 +534,8 @@ def todays_session(db: Database, cfg: Config, day: date) -> dict[str, Any]:
             changes.append("Volume reduzido em ~35% e 1 repetição a mais de reserva (sinais de recuperação incompleta).")
     for it in session["exercicios"]:
         it["series"] = max(2 if it["series"] >= 3 else 1, round(it["series"] * factor))
-        it["rir"] = max(plan.get("rir_minimo", 0), min(5, it["rir"] + rir_adj))
-        can_progress = ready["nivel"] == "normal" and factor >= 1 and ready["triagem_respondida"] and stage_ok
+        it["rir"] = max(plan.get("rir_minimo", 0), 3 if no_intense else 0, min(5, it["rir"] + rir_adj))
+        can_progress = ready["nivel"] == "normal" and factor >= 1 and ready["triagem_respondida"] and stage_ok and not no_intense
         it["progressao"] = (progression(db, it["chave"], it["reps"], it["rir"]) if can_progress
                             else {"acao": "manter", "texto": "Hoje não é dia de aumentar carga: repita a última carga."})
     session["duracao_min"] = round(8 + sum(i["series"] * (i["descanso_s"] + 40) for i in session["exercicios"]) / 60)
