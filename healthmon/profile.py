@@ -214,7 +214,7 @@ def weights(db: Database, start: str, end: str) -> list[dict[str, Any]]:
 
 
 def current_weight(db: Database, cfg: Config, day: str | None = None) -> tuple[float | None, str]:
-    """Peso de referência: média das pesagens dos últimos 7 dias; senão a última; senão a configuração."""
+    """Peso de referência: média das pesagens dos últimos 7 dias; senão a última. Sem pesagem não há peso (nunca um valor presumido)."""
     day = day or date.today().isoformat()
     rows = db.q("SELECT date, weight_kg FROM body_measurements WHERE date<=? AND weight_kg IS NOT NULL "
                 "ORDER BY date DESC LIMIT 7", (day,))
@@ -224,5 +224,4 @@ def current_weight(db: Database, cfg: Config, day: str | None = None) -> tuple[f
         return round(sum(recent) / len(recent), 2), f"média de {len(recent)} pesagem(ns) dos últimos 7 dias"
     if rows:
         return rows[0]["weight_kg"], f"última pesagem ({rows[0]['date']})"
-    w = cfg.get("perfil", "peso_kg")
-    return (float(w), "valor da configuração (sem pesagens registradas)") if w else (None, "sem dado")
+    return None, "sem dado"          # peso presumido da configuração não é mais aceito: só pesagens registradas

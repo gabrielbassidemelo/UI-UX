@@ -400,6 +400,13 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
         return {"ok": True}
 
     # ------------------------------------------------------------- aprendizado
+    @app.get("/api/feedback")
+    def feedback_view(dia: str | None = None):
+        """Relato diário × pulseira e avaliação observacional das recomendações. Somente leitura: não altera regras."""
+        from .. import feedback
+        d = day_arg(dia)
+        return {"cruzamento": feedback.cross(db, d), "recomendacoes": feedback.recommendation_effect(db, d)}
+
     @app.get("/api/aprendizado")
     def aprendizado():
         d = ref_day()

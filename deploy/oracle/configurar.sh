@@ -112,7 +112,7 @@ fi
 say "9 Validando a integração real com a Garmin (o relatório não contém valores de saúde)…"
 if $RUN validar-garmin; then
   echo "Validação concluída. Relatório: data/validacao_garmin.json."
-  echo "Falta a sua conferência com o app Garmin Connect: no painel, Configurações › Conferência com o app."
+  echo "Falta a sua conferência com o app Garmin Connect: no painel, Mais › Conferência Garmin."
 else
   echo "A validação FALHOU. O serviço será iniciado, mas o sistema NÃO deve ser considerado pronto até resolver isto."
 fi

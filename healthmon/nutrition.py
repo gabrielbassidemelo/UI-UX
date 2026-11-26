@@ -27,7 +27,6 @@ from .db import Database, utcnow
 SAFETY = {
     "deficit_max_pct": 25.0,                # do gasto total estimado
     "imc_minimo_para_deficit": 18.5,        # abaixo disso nenhum déficit é proposto
-    "imc_aviso_deficit": 20.0,              # abaixo disso o déficit fica limitado a 10%
     "deficit_max_idoso_pct": 10.0,          # a partir de 65 anos
     "proteina_min_idoso_g_kg": 1.2,
     "perda_max_pct_semana": 1.0,            # do peso corporal

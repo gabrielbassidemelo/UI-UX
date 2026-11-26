@@ -484,13 +484,18 @@
   }
 
   async function vRecomendacoes() {
-    const [h, ap] = await Promise.all([api("/api/home"), api("/api/aprendizado")]);
+    const [h, ap, fb] = await Promise.all([api("/api/home"), api("/api/aprendizado"), api("/api/feedback")]);
     $("#subtitle").textContent = `Plano de ${dateBR(h.dia)}`;
+    const fbHtml = `<h2>Seu relato e a pulseira</h2><div class="card">
+      ${fb.cruzamento.pares.map((x) => `<p class="small">${esc(x.texto)}</p>`).join("")}
+      <p class="small muted">${esc(fb.cruzamento.nota)}</p></div>
+      <h2>As recomendações ajudaram?</h2><div class="card">
+      ${fb.recomendacoes.disponivel ? fb.recomendacoes.desfechos.map((x) => `<p class="small">${esc(x.texto)}</p>`).join("") + `<p class="small muted">${esc(fb.recomendacoes.nota)}</p>` : `<p class="small">${esc(fb.recomendacoes.texto)}</p>`}</div>`;
     const ro = ap.resultado_recomendacoes;
     view.innerHTML = h.itens.map(recCard).join("") + `<h2>Histórico de decisões e resultados</h2>
       <div class="card"><p class="small">${esc(ro.texto)}</p>${ap.decisoes.slice(0, 25).map((d) => `<div class="row"><span>${esc(d.title)}<small>${dateBR(d.date)} · ${esc(d.area)}${d.confidence ? " · confiança " + esc(d.confidence) : ""}</small></span>
         <span class="r">${d.area === "treino" ? (d.followed == null ? `<button class="link" data-dec="${d.id}" data-ok="1">segui</button> <button class="link" data-dec="${d.id}" data-ok="0">não segui</button>` : (d.followed ? "seguida" : "não seguida")) : esc(d.status)}</span></div>`).join("") || `<p class="empty">Sem decisões registradas.</p>`}
-        <p class="small muted">Marcar se você seguiu cada recomendação permite ao sistema avaliar se as próprias sugestões estão ajudando.</p></div>`;
+        <p class="small muted">Marcar se você seguiu cada recomendação permite ao sistema avaliar se as próprias sugestões estão ajudando.</p></div>` + fbHtml;
     $$("[data-dec]").forEach((b) => (b.onclick = async () => { await post(`/api/decisoes/${b.dataset.dec}`, { seguiu: b.dataset.ok === "1" }); render(); }));
   }
 

@@ -91,20 +91,20 @@ Sem backup externo funcionando o script **não pede** a chave da Garmin.
 ## 7. 🔶 Depois da configuração
 1. **Painel no iPhone:** com o Tailscale ligado, abra o endereço mostrado, entre com a senha, toque em
    Compartilhar → *Adicionar à Tela de Início*. Abra pelo ícone e, em Configurações, ative as notificações.
-2. **Teste de notificação:** em Configurações → *Enviar notificação de teste*. Bloqueie a tela e confirme que
+2. **Teste de notificação:** em Mais → Configurações → Notificações no iPhone → *Enviar teste*. Bloqueie a tela e confirme que
    chega. (No terminal: `docker compose run --rm healthmon healthmon testar-notificacao`.)
 3. **Perfil e triagem de saúde:** responda todas as perguntas. Sem elas o sistema só descreve os dados.
 4. **Histórico:** `docker compose run --rm healthmon healthmon historico --dias 365`
    (pode ser repetido; continua de onde parou se o teto diário de requisições for atingido).
 5. **O que a CIRQA realmente entrega:** `docker compose run --rm healthmon healthmon disponibilidade`.
-6. **Conferência com o app Garmin Connect:** em Configurações → *Conferência com o app*, compare os valores de
+6. **Conferência com o app Garmin Connect:** em Mais → *Conferência Garmin*, compare os valores de
    ontem com os do app e marque igual/diferente em cada indicador.
 7. **Ensaio de recuperação** (obrigatório antes de confiar no backup): `RECUPERACAO_DESASTRES.md`,
    seção "Recuperação completa em VM nova". O ensaio rápido, que não toca no banco em uso:
    ```bash
    docker run --rm -it --log-driver none --tmpfs /tmp -v "$PWD/data:/data" -v "$PWD/deploy:/deploy:ro" healthmon:local bash /deploy/oracle/ensaio-recuperacao.sh
    ```
-8. **Cópia independente da Oracle:** em Configurações → Backup → *Baixar backup cifrado*, salve no app
+8. **Cópia independente da Oracle:** em Mais → Configurações → Backup externo → *Baixar backup cifrado*, salve no app
    Arquivos (iCloud) uma vez por semana. O arquivo só abre com a chave de recuperação.
 9. **Fechar o SSH público:** `./deploy/oracle/fechar-ssh-publico.sh` e, no console da Oracle, remova a regra da
    porta 22 em *Networking → Virtual cloud networks → Security Lists*. A VM fica sem porta aberta à internet.
@@ -114,7 +114,7 @@ Sem backup externo funcionando o script **não pede** a chave da Garmin.
 - [ ] 🔶 `configurar.sh` terminou as 10 etapas sem falha.
 - [ ] 🔶 `validar-garmin` aprovado: autenticação, renovação do token, estrutura, unidades, fuso e histórico.
 - [ ] 🔶 Conferência com o app Garmin Connect feita por você, indicador por indicador.
-- [ ] 🔶 Backup diário criado, enviado e conferido por 3 dias seguidos (Configurações → Backup).
+- [ ] 🔶 Backup diário criado, enviado e conferido por 3 dias seguidos (Mais → Configurações → Backup externo).
 - [ ] 🔶 Restauração provada: ensaio rápido e, de preferência, recuperação completa em uma VM nova.
 - [ ] 🔶 Painel aberto no iPhone pela rede privada; notificação recebida com a tela bloqueada.
 - [ ] 🔶 Relatórios das 08h e das 22h gerados sozinhos por 3 dias, sem intervenção.

@@ -97,7 +97,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "init":
         home = init_home()
         print(f"Diretório criado: {home}\n- Edite {home/'config.toml'}\n- Preencha segredos em {home/'secrets.env'} (permissão 600)\n"
-              "- Depois: healthmon login && healthmon senha-dashboard && healthmon historico --dias 90")
+              "- Depois: healthmon senha-dashboard, healthmon trocar-chave-garmin, healthmon validar-garmin e healthmon historico --dias 90\n"
+              "- Em servidor, use o roteiro guiado: deploy/oracle/configurar.sh (docs/IMPLANTACAO.md)")
         return 0
 
     cfg = load_config()

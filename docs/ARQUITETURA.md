@@ -1,4 +1,8 @@
-# Arquitetura (fase 2)
+# Arquitetura (fases 2 e 3)
+
+Esta versão inclui a fase 3: triagem de saúde obrigatória, estágios de calibração, classes de verificação
+das referências, backup HMBK2 com cópia externa e a tela de conferência com o app Garmin. A fase 3 acrescentou
+as regras de decisão e a trava de evidências descritas em "Fluxo de decisão" abaixo.
 
 ```
 CIRQA ─BT─► Garmin Connect (iPhone) ─► nuvem Garmin
@@ -15,7 +19,7 @@ CIRQA ─BT─► Garmin Connect (iPhone) ─► nuvem Garmin
 │        supplements ◄── kb (evidências, BM25) ├► learning (experimentos)    │
 │        labs                                  ▼                             │
 │                          planner (plano do dia) ► reports ► notify (push)  │
-│  service (agendador, histórico, recuperação) · backup (cifrado, testado)   │
+│  service (agendador) · backup (HMBK2) · offsite (cópia externa)           │
 │  web (FastAPI + PWA) ◄──── HTTPS só na rede privada Tailscale ──── iPhone  │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -28,21 +32,49 @@ CIRQA ─BT─► Garmin Connect (iPhone) ─► nuvem Garmin
 | `parse.py`, `sync.py`, `db.py` | Normalização defensiva, sincronização incremental sem duplicatas, SQLite | fase 1, ampliados |
 | `analysis.py`, `insights.py`, `alerts.py`, `reports.py` | Linha de base, persistência, tendências, alertas, relatórios | fase 1 |
 | `stats.py` | EWMA, bases de 7/28/90 dias, dia da semana, qualidade dos dados, CUSUM, backtesting | novo |
-| `profile.py` | Perfil, pesagens, peso de referência | novo |
+| `profile.py` | Perfil, pesagens e peso de referência (média das pesagens dos últimos 7 dias; sem pesagem real, as metas não são liberadas) | novo |
 | `metabolism.py` | TMB, três estimativas de gasto total, recalibração, sinal de possível adaptação | novo |
 | `training.py` | Biblioteca de exercícios, plano periodizado, progressão, zonas, decisão diária, limites | novo |
 | `nutrition.py` | Metas, base de alimentos (busca FTS5), registro por texto, programação linear | novo |
-| `supplements.py`, `kb.py` | Fichas e regras de suplementação; base científica com busca BM25 e verificação de DOI | novo |
+| `supplements.py` | Fichas e regras de suplementação, com a trava de evidências | novo |
+| `kb.py`, `kb/evidencias.json`, `kb/verificacao.json` | Base científica com busca BM25; classes de verificação (verificada, parcialmente verificada, não verificada, inadequada); `healthmon kb verificar` consulta o Crossref pelo DOI | novo; classes na fase 3 |
 | `labs.py` | Exames com valor, unidade e referência do laboratório | novo |
 | `learning.py` | Experimentos n-de-1, padrões observacionais, histórico de decisões | novo |
 | `planner.py` | Plano do dia e objetivos | novo |
 | `push.py`, `notify.py` | Web Push (PWA), Telegram, e-mail | push novo |
 | `service.py` | Agendador, histórico de execuções, recuperação ao reiniciar, retenção | ampliado |
+| `safety.py` | Triagem obrigatória (15 perguntas e campos básicos), sintomas do dia, bloqueios por condição, filtro do texto gerado por IA | fase 3 |
+| `calibration.py` | Estágios de calibração (observação, linha de base, personalizado, longitudinal) e o que cada estágio permite | fase 3 |
+| `feedback.py` | Cruzamento entre o que você relata e o que a pulseira mede, e avaliação das recomendações (só após 90 dias). **Nesta versão só os testes o usam**: não há tela nem endpoint | fase 3 |
+| `garmin_validation.py` | Validação da API oficial (relatório sem valores de saúde) e registro de conferência igual/diferente com o app Garmin Connect | fase 3 |
+| `backup.py` | Backup HMBK2: criptografia assimétrica (X25519 + ChaCha20-Poly1305). O servidor cria o backup, mas não o decifra. O formato HMBK1 (frase-senha) só é lido para backups antigos | fase 3 |
+| `offsite.py` | Cópia externa (Oracle Object Storage, por PAR): envio, verificação por SHA-256, estado e alertas de atraso | fase 3 |
+| `validacao/` | Medição por simulação, com dados sintéticos, dos detectores estatísticos. Não é validação com dados reais: ver `VALIDACAO_ESTATISTICA.md` | fase 3 |
 | `web/` | API e PWA de cinco abas | ampliado |
 
-Reaproveitado da fase 1 sem reescrita: banco, parser, análise estatística, relatórios, alertas, backups,
-autenticação e a casca do painel. Os 28 testes originais continuam passando sem alteração de comportamento
-(um deles teve só a assinatura de um *mock* atualizada).
+Reaproveitado da fase 1: banco, parser, análise estatística, relatórios, alertas, autenticação e a casca do
+painel. Backups da fase 1 (HMBK1, com frase-senha) continuam legíveis, mas os novos backups usam HMBK2.
+
+Testes: `pytest -q`, com dados sintéticos. Na execução de 26/11/2026 a suíte passou inteira (318 testes).
+Isso não é validação com dados reais.
+
+## Fluxo de decisão: triagem → trava de evidências → estágio → recomendação
+1. **Triagem (`safety.screen`).** Sem sexo, nascimento, altura ou alguma das 15 perguntas, as áreas
+   personalizadas (déficit, metas, treino e suplementos) ficam suspensas, com a lista do que falta. Menores
+   de 18 anos ficam bloqueados. Respostas "sim" geram bloqueios por área, com o motivo. Sem pesagem real não
+   há metas. Os sintomas do dia (`symptom_flags`) também entram aqui: qualquer sintoma marcado define o
+   nível "parar" do dia, e texto livre só reforça.
+2. **Trava de evidências (`kb.failing`).** Cada regra cita referências. Referência abaixo de
+   `[evidencias] nivel_minimo` (padrão: `parcialmente_verificada`) desabilita a regra que depende dela.
+3. **Estágio de calibração (`calibration.stage`).** Conta dias válidos (pelo menos 2 de 4 indicadores
+   centrais por dia). Alertas de tendência e redução de treino por recuperação entram a partir da linha de
+   base. Progressão de carga e calibração metabólica entram a partir de 28 dias válidos. Comparações de longo
+   prazo e avaliação das recomendações entram a partir de 90 dias. Alertas, treino, metabolismo e relatórios
+   consultam essa decisão.
+4. **Recomendação.** O motor de regras (`training.readiness`, `nutrition`, `planner`) produz a recomendação.
+   Com IA ligada, o texto gerado passa por `safety.llm_text_allowed` antes de aparecer. O texto que mencione
+   medicamento, dose, doença, restrição alimentar ou esforço intenso é descartado. Plano e meta só valem depois
+   da sua confirmação.
 
 ## Camadas de inteligência
 1. **Modelos matemáticos:** equações metabólicas, balanço energético, zonas de frequência cardíaca, 1RM
@@ -103,5 +135,6 @@ O sistema tem duas e nenhuma é indicador clínico:
 - **Pontos de prontidão para treino:** soma de sinais (quatro grupos objetivos independentes — HRV, FC de
   repouso, sono e estresse no sono —, percepção subjetiva, sono curto, pico de carga), cada um valendo 1
   ou 2; 0–1 treino normal, 2–3 reduzido, 4 ou mais recuperação. Body Battery e prontidão do Garmin ficam
-  de fora por serem índices compostos de HRV e sono.
+  de fora por serem índices compostos de HRV e sono. Qualquer sintoma marcado no check-in define o nível
+  "parar", independentemente da pontuação.
   Os pesos são uma regra de decisão transparente, **não validada em estudo**, e ficam visíveis no painel.

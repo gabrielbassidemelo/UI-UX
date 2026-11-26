@@ -19,8 +19,8 @@ from typing import Any
 from .db import Database
 
 STAGES = [("observacao", 0), ("linha_de_base", 7), ("personalizado", 28), ("longitudinal", 90)]
-LABEL = {"observacao": "Observação (primeiros 7 dias de dados)", "linha_de_base": "Construção da linha de base (8 a 28 dias)",
-         "personalizado": "Recomendações personalizadas (após 28 dias)", "longitudinal": "Análise longitudinal (após 90 dias)"}
+LABEL = {"observacao": "Observação (menos de 7 dias de dados)", "linha_de_base": "Construção da linha de base (7 a 27 dias de dados)",
+         "personalizado": "Recomendações personalizadas (28 a 89 dias de dados)", "longitudinal": "Análise longitudinal (90 dias de dados ou mais)"}
 CORE = ("sleep_seconds", "resting_hr", "hrv_last_night", "steps")
 
 

@@ -3,14 +3,34 @@
 Todas as análises comparam você **com você mesmo**. Nenhum limite clínico fixo é usado para gerar
 alertas. Medições de vestíveis são estimativas: não são exames clínicos e não servem para diagnóstico.
 
+## Estágios de calibração (parâmetros operacionais)
+O sistema conta **dias válidos**: dias com pelo menos dois dos quatro indicadores centrais (sono, FC de repouso,
+HRV da noite e passos). Histórico importado também conta. O estágio depende dessa quantidade e da cobertura
+recente, não só do calendário.
+
+| Estágio | Dias válidos | O que o sistema pode fazer |
+|---|---|---|
+| Observação | Menos de 7 | Relatórios descritivos e orientações gerais de baixo risco |
+| Linha de base | 7 a 27 | Alertas de tendência; redução de treino por recuperação. Não aumenta carga |
+| Personalizado | 28 a 89 | Progressão de carga, calibração metabólica e análise de tendências |
+| Longitudinal | 90 ou mais | Comparações de longo prazo e avaliação das recomendações |
+
+- Os limites de 7, 28 e 90 dias são **parâmetros operacionais iniciais**, não garantias de validade científica.
+  Eles dependem da quantidade, da qualidade e da representatividade dos dados.
+- Com menos de 8 dias válidos nas últimas duas semanas, o sistema volta ao estágio de linha de base até a coleta
+  se regularizar.
+- A regra de dias válidos e os limites estão em `healthmon/calibration.py`. O painel mostra o estágio no
+  cartão **Calibração** da tela Hoje.
+
 ## Linha de base individual
 - Janela: os 28 dias **anteriores** ao dia analisado (configurável), sem incluir o próprio dia.
 - Centro: mediana. Dispersão: desvio robusto = máx(1,4826 × MAD; 0,85 × desvio-padrão).
   A MAD resiste a valores extremos (Leys et al., 2013); o piso de 0,85 × DP evita subestimar a dispersão
   com amostras pequenas ou valores inteiros (FC, pontuações).
 - HRV é analisada em escala logarítmica, prática usual no monitoramento de HRV (Plews et al., 2013).
-- A base só é considerada confiável com pelo menos 10 dias de dados; antes disso o sistema avisa
-  "construindo linha de base" e não emite alertas.
+- A base só é considerada confiável com pelo menos `[analise] minimo_dias_base` dias de dados (padrão: 10).
+  Esse parâmetro é separado dos estágios de calibração acima. Antes disso o sistema avisa "construindo linha
+  de base" e não emite alertas.
 
 ## Pontual × persistente
 - **Faixa usual:** mediana ± 1 desvio robusto.
@@ -18,11 +38,10 @@ alertas. Medições de vestíveis são estimativas: não são exames clínicos e
 - **Persistente:** a média dos últimos 7 dias está a ≥ 1,25 desvio da linha de base **anterior** a esses
   7 dias **e** pelo menos 4 dos 7 dias estão fora da faixa no mesmo sentido. Médias móveis de 7 dias contra
   a base individual são a abordagem recomendada para HRV (Plews et al., 2013; Buchheit, 2014).
-- Calibração **somente em simulação**: em 150 dias sintéticos estáveis, a regra marcou 0–3% dos dias como
-  persistentes e detectou o período simulado de estresse nos indicadores principais. A simulação usa ruído
-  gaussiano com uma oscilação lenta, bem mais simples que dados reais (viagens, doenças, álcool, trocas de
-  rotina, falhas do sensor). Esse número **não é taxa de falso alarme em uso real nem evidência de eficácia
-  clínica**; a taxa real só poderá ser estimada depois de meses de dados seus.
+- **Medição por simulação, não validação com dados reais.** O comportamento dos detectores foi medido com
+  séries sintéticas, descritas em `docs/VALIDACAO_ESTATISTICA.md`, com os resultados e as suposições do
+  simulador. Esses números não são taxa de falso alarme em uso real nem evidência de eficácia clínica. A taxa
+  real só poderá ser estimada depois de meses de dados seus.
 
 ## Recuperação
 Sete sinais comparados à base: HRV, FC de repouso, pontuação e duração do sono, Body Battery máximo,
@@ -60,6 +79,12 @@ afirmar causalidade.
 - Watson NF et al. Recommended amount of sleep for a healthy adult: a joint consensus statement of the AASM and SRS. *Sleep*. 2015;38(6):843-844.
 - Hirshkowitz M et al. National Sleep Foundation's sleep time duration recommendations. *Sleep Health*. 2015;1(1):40-43.
 - Chinoy ED et al. Performance of seven consumer sleep-tracking devices compared with polysomnography. *Sleep*. 2021;44(5):zsaa291.
+
+## Triagem e trava de evidências
+As áreas personalizadas (treino, metas e suplementos) ficam suspensas enquanto a triagem de saúde não estiver
+respondida, e as metas também dependem de pesagem real. Regras que dependem de referência abaixo do nível
+mínimo de verificação (por padrão, "não verificada" ou "inadequada") ficam desabilitadas. A verificação das referências foi feita por modelos de IA e
+não é auditoria humana independente. Detalhes em `MANUAL_IPHONE.md` e `ARQUITETURA.md`.
 
 ## Fase 2
 Os métodos acrescentados (EWMA, bases de 7/28/90 dias, CUSUM, backtesting, balanço energético, regras de

@@ -275,3 +275,10 @@ def test_confirmed_target_without_fiber_and_water_does_not_break_pages(client, a
     db.set_json("meta_nutricional", {**t, "fibra_g": None, "agua_ml": None})
     for p in ("/api/home", "/api/nutricao"):
         assert client.get(p).status_code == 200, p
+
+
+def test_feedback_endpoint_is_read_only_and_authenticated(app_db, client):
+    assert TestClient(app_db[0]).get("/api/feedback", headers=H).status_code == 401
+    r = client.get("/api/feedback").json()
+    assert r["cruzamento"]["pares"] and "disponivel" in r["recomendacoes"]
+    assert all("texto" in p for p in r["cruzamento"]["pares"])
