@@ -91,7 +91,7 @@
   };
 
   // ---------------------------------------------------------------- navegação
-  const TITLES = { hoje: "Hoje", saude: "Saúde", treino: "Treino", nutricao: "Nutrição", mais: "Mais", metabolismo: "Metabolismo",
+  const TITLES = { hoje: "Hoje", saude: "Saúde", treino: "Treino", nutricao: "Comida", mais: "Mais", metabolismo: "Metabolismo",
     composicao: "Composição corporal", suplementos: "Suplementação", exames: "Exames laboratoriais", evolucao: "Evolução",
     recomendacoes: "Recomendações", relatorios: "Relatórios", config: "Configurações", garmin: "Conferência Garmin" };
   function go(tab, sub = null) { state.tab = tab; state.sub = sub; render(); window.scrollTo(0, 0); }
@@ -109,64 +109,96 @@
 
   // ---------------------------------------------------------------- HOJE
   let SYMS = [];
+  const TILES = [["sleep_seconds", "Sono", '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>'],
+    ["hrv_last_night", "HRV da noite", '<path d="M3 12h4l2-6 4 12 2-6h6"/>'],
+    ["resting_hr", "FC de repouso", '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>'],
+    ["bb_max", "Energia", '<path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"/>']];
   async function vHoje() {
     if (!SYMS.length) SYMS = (await api("/api/seguranca/triagem")).sintomas;
-    const [h, cal] = await Promise.all([api("/api/home"), api("/api/calibracao")]);
+    const [h, cal, ov] = await Promise.all([api("/api/home"), api("/api/calibracao"), api("/api/overview")]);
     $("#demo-banner").hidden = !h.demo;
-    $("#subtitle").textContent = `${dateBR(h.dia)} · sincronizado ${dtBR(h.ultima_sincronizacao)}`;
-    const rec = h.itens[0], p = h.prontidao, q = h.qualidade_dados, s = h.sessao, n = h.nutricao;
-    const lvl = p.recuperacao_objetiva, sg = h.seguranca || { faltam: [], bloqueios: {} };
+    $("#subtitle").textContent = new Date(h.dia + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+    const p = h.prontidao, s = h.sessao, n = h.nutricao, av = ov.avaliacoes || {};
+    const sg = h.seguranca || { faltam: [], bloqueios: {} };
     const trBloq = sg.bloqueios.treino_plano, nuBloq = sg.bloqueios.metas_nutricionais || sg.bloqueios.metas_peso;
-    const sessHtml = s.tipo === "forca" ? `<ul>${s.sessao.exercicios.map((e) => `<li>${esc(e.exercicio)} — ${e.series}×${e.reps[0]}–${e.reps[1]}, RIR ${e.rir}</li>`).join("")}</ul>
-        <p class="small muted">~${s.sessao.duracao_min} min · ${esc(s.semana || "")}</p>${(s.ajustes || []).map((a) => `<p class="notice">${esc(a)}</p>`).join("")}`
-      : s.tipo === "cardio" ? `<p>${esc(s.cardio.duracao_min)} min · ${esc(s.cardio.intensidade)}</p>${s.cardio.ajuste ? `<p class="notice">${esc(s.cardio.ajuste)}</p>` : ""}`
-      : `<p>${esc(s.texto || "")}</p>`;
-    const macro = (lbl, cur, tgt, unit) => { const pct = tgt ? Math.min(130, 100 * cur / tgt) : 0;
-      return `<div class="row" style="border:0;padding:2px 0"><span>${lbl}</span><span class="r">${nf(cur)} / ${nf(tgt)} ${unit}</span></div><div class="bar ${pct > 108 ? "over" : ""}"><i style="width:${Math.min(100, pct)}%"></i></div>`; };
+    const I = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+    // ---- veredito em linguagem simples
+    const fora = TILES.filter(([k]) => av[k] && av[k].leitura === "desfavoravel").map(([, nome]) => nome === "Sono" || nome === "Energia" ? nome.toLowerCase() : nome);
+    const lista = fora.length ? fora.join(", ").replace(/, ([^,]*)$/, " e $1") : "";
+    const V = {
+      normal: ["ok", "✓", 100, "Corpo recuperado", "Bom dia para treinar", "Seus sinais estão dentro do seu normal. Pode seguir o treino planejado."],
+      reduzido: ["mid", "–", 62, "Recuperação incompleta", "Pegue mais leve hoje", `${lista ? "Fora do seu normal: " + lista + ". " : ""}Mantenha o treino, com menos volume e sem forçar.`],
+      recuperacao: ["low", "↓", 34, "Corpo pedindo descanso", "Dia de recuperação", `${lista ? "Fora do seu normal: " + lista + ". " : ""}Troque o treino por caminhada leve ou descanse.`],
+      parar: ["stop", "!", 100, "Sintomas relatados", "Não treine hoje", p.urgente ? URGENT_TXT : "Você relatou sintomas. Descanse e procure avaliação se não melhorar."],
+    }[p.nivel] || ["na", "?", 0, "Ainda sem dados suficientes", "Conhecendo o seu padrão", "Use a pulseira por alguns dias. Enquanto isso, o painel só descreve os seus dados."];
+    const C = 2 * Math.PI * 36, wd = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+    const hero = `<section class="hero ${V[0]}" ${p.nivel === "parar" ? 'role="alert"' : ""}>
+      <div class="hero-top"><div class="ring"><svg viewBox="0 0 84 84"><circle class="bg" cx="42" cy="42" r="36"/><circle class="fg" cx="42" cy="42" r="36" stroke-dasharray="${(C * V[2] / 100).toFixed(1)} ${C.toFixed(1)}"/></svg><b>${V[1]}</b></div>
+        <div><p class="eyebrow">${esc(V[3])}</p><h3>${esc(V[4])}</h3></div></div>
+      <p class="lead">${esc(V[5])}</p>
+      <div class="week" aria-label="Recuperação nos últimos 7 dias">${h.tendencia_recuperacao.map((d) => `<span><i class="${esc(d.status)}"></i>${wd[new Date(d.dia + "T12:00:00").getDay()]}</span>`).join("")}</div>
+      <div class="foot"><span>Últimos 7 dias</span><button class="link" data-go="recomendacoes">Por que essa recomendação?</button></div></section>`;
+    // ---- quatro números
+    const tile = ([k, nome, ico]) => { const a = av[k]; if (!a || a.valor == null) return "";
+      const m = META.metricas[k], txt = fmtVal(k, a.valor), sp = txt.lastIndexOf(" ");
+      const num = m.unidade && m.unidade !== "h" && sp > 0 ? `${esc(txt.slice(0, sp))}<small>${esc(txt.slice(sp + 1))}</small>` : esc(txt);
+      const st = a.leitura === "desfavoravel" ? [a.padrao === "persistente" ? "warn" : "bad", a.padrao === "persistente" ? "Fora há dias" : "Fora do normal"]
+        : a.leitura === "favoravel" ? ["good", "Acima do normal"] : a.base_confiavel ? ["", "No seu normal"] : ["", "Aprendendo seu padrão"];
+      return `<button class="tile" data-tab="saude"><span class="lbl">${I(ico)}${esc(nome)}</span><div class="val">${num}</div><span class="pill ${st[0]}">${st[1]}</span>
+        ${a.mediana != null && a.base_confiavel ? `<span class="usual">Seu normal: ${esc(fmtVal(k, a.mediana))}</span>` : ""}</button>`; };
+    const tiles = TILES.map(tile).join("");
+    // ---- plano de hoje
+    const trTxt = trBloq && s.tipo !== "descanso" ? ["Treino suspenso", "Veja o motivo em Treino"]
+      : s.tipo === "forca" ? [s.titulo, `Musculação · cerca de ${s.sessao.duracao_min} min · ${s.sessao.exercicios.length} exercícios`]
+      : s.tipo === "cardio" ? [s.titulo, `${s.cardio.duracao_min} min · ${s.cardio.intensidade}`]
+      : s.tipo === "sem_plano" ? ["Você ainda não tem um plano", "Toque para criar o seu"] : [s.titulo, (s.texto || "").split(".")[0] + "."];
+    const pct = n.meta && n.meta.kcal ? Math.min(100, 100 * n.total.kcal / n.meta.kcal) : 0;
+    const foodTxt = n.meta_bloqueada ? ["Metas de alimentação suspensas", "Veja o motivo em Comida"]
+      : n.meta ? [`${nf(n.total.kcal)} de ${nf(n.meta.kcal)} kcal`, `Proteína ${nf(n.total.protein_g)} de ${nf(n.meta.proteina_g)} g`] : ["Sem meta definida", "Toque para revisar a proposta"];
+    const plan = `<div class="plan">
+      <button class="plan-row" data-tab="treino"><span class="ico">${I('<path d="M6 8v8M3 10v4M18 8v8M21 10v4M6 12h12"/>')}</span><span class="txt"><b>${esc(trTxt[0])}</b><small>${esc(trTxt[1])}</small></span><span class="chev">›</span></button>
+      <button class="plan-row" data-tab="nutricao"><span class="ico">${I('<path d="M12 7c-2-2.5-6-1.5-6 3 0 4 2.5 9 6 9s6-5 6-9c0-4.5-4-5.5-6-3z"/><path d="M12 7c0-2 1-3 2.5-3.5"/>')}</span><span class="txt"><b>${esc(foodTxt[0])}</b><small>${esc(foodTxt[1])}</small>${n.meta && !n.meta_bloqueada ? `<div class="mini"><i style="width:${pct}%"></i></div>` : ""}</span><span class="chev">›</span></button>
+      <button class="plan-row" id="open-ck"><span class="ico">${I('<path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>')}</span><span class="txt"><b>Como você está hoje?</b><small>${p.triagem_respondida ? '<span class="done">Check-in feito</span> · toque para rever' : "Leva 30 segundos e ajusta o treino de hoje"}</small></span><span class="chev">›</span></button></div>`;
+    const scale = (name, label, max, lo, hi) => `<fieldset class="scale"><legend>${label}</legend><div class="opts">${Array.from({ length: max }, (_, i) => `<label><input type="radio" name="${name}" value="${i + 1}"><span>${i + 1}</span></label>`).join("")}</div><div class="ends"><span>${lo}</span><span>${hi}</span></div></fieldset>`;
+    const susp = (cal.suspenso || []).length;
     view.innerHTML = `
       ${p.urgente ? `<div class="card alert urgent" role="alert"><h3>Procure atendimento</h3><p>${esc(URGENT_TXT)}</p></div>` : ""}
-      ${calibCard(cal)}
-      ${sg.faltam && sg.faltam.length ? blockCard("Triagem de saúde pendente", "Sem a triagem, treino, metas e suplementos personalizados ficam suspensos.", sg.faltam) : ""}
-      ${h.alertas.map((a) => `<div class="card alert"><h3>${esc(a.title)}</h3><p>${esc(a.message)}</p><button class="secondary" data-ack="${a.id}">Entendi</button></div>`).join("")}
-      <div class="card"><div class="recovery" style="display:flex"><div class="dot ${lvl}" aria-hidden="true"></div><div>
-        <h3>${esc(rec.o_que_fazer)}</h3><p>${esc(p.sinais[0] || "Nenhum sinal desfavorável.")}</p></div></div>
-        <div class="dots" aria-label="Recuperação nos últimos 7 dias">${h.tendencia_recuperacao.map((d) => `<i class="${d.status}" title="${dateBR(d.dia)}: ${d.status}"></i>`).join("")}</div>
-        <p class="small muted">Últimos 7 dias · ${chip(p.confianca, CONF[p.confianca])} ${chip(q.nivel === "boa" ? "ok" : "media", "Dados: " + q.pontuacao + "/100")}</p>
-        <button class="link" data-go="recomendacoes">Ver justificativas e evidências</button></div>
-      ${h.experimento ? `<div class="card"><h3 class="sec">Experimento em andamento: ${esc(h.experimento.nome)}</h3><p>Hoje: <strong>${esc(h.experimento.condicao)}</strong></p>
+      ${sg.faltam && sg.faltam.length ? blockCard("Complete seu perfil de saúde", "Sem essas respostas o painel só descreve seus dados: treino, metas e suplementos personalizados ficam suspensos.", []) : ""}
+      ${hero}
+      ${tiles ? `<div class="tiles">${tiles}</div>` : ""}
+      <h2>Seu plano de hoje</h2>${plan}
+      ${h.experimento ? `<div class="card"><h3 class="sec">Experimento: ${esc(h.experimento.nome)}</h3><p>Hoje: <strong>${esc(h.experimento.condicao)}</strong></p>
         ${h.experimento.registrado ? `<p class="small muted">Dia já registrado.</p>` : `<div class="hstack"><button class="secondary" data-exp="${h.experimento.id}" data-ok="1">Segui</button><button class="secondary" data-exp="${h.experimento.id}" data-ok="0">Não segui</button></div>`}</div>` : ""}
-      <h2>Treino recomendado</h2>
-      ${trBloq && s.tipo !== "descanso" ? blockCard("Treino personalizado suspenso", trBloq, sg.faltam)
-        : `<div class="card"><h3 class="sec">${esc(s.titulo)}</h3>${sessHtml}<button class="link tap" data-tab="treino">Abrir treino</button></div>`}
-      <h2>Nutrição de hoje</h2>
-      <div class="card">${n.meta_bloqueada ? `<p class="notice">Meta indisponível: ${esc(nuBloq || "complete o perfil e a triagem de saúde")}. ${sg.faltam && sg.faltam.length ? "Falta: " + esc(sg.faltam.join(", ")) + "." : ""}</p>` : n.meta ? macro("Calorias", n.total.kcal, n.meta.kcal, "kcal") + macro("Proteína", n.total.protein_g, n.meta.proteina_g, "g") + macro("Carboidrato", n.total.carb_g, n.meta.carboidrato_g, "g") + macro("Gordura", n.total.fat_g, n.meta.gordura_g, "g")
-        : `<p class="muted">Sem meta confirmada. Abra Nutrição para revisar a proposta.</p>`}
-        <form class="f" id="quick-meal"><label>Registrar refeição (ex.: 150 g frango grelhado, 200 g arroz cozido)
-          <input name="texto" autocomplete="off" required></label><button class="primary" type="submit">Registrar</button></form></div>
-      <h2>Como você está?</h2>
-      <div class="card"><form class="f two" id="checkin">
-        <label>Recuperação percebida (1–10)<input name="perceived_recovery" type="number" min="1" max="10" step="1" inputmode="numeric"></label>
-        <label>Dor muscular (1–5)<input name="soreness" type="number" min="1" max="5" step="1" inputmode="numeric"></label>
-        <label>Fadiga (1–5)<input name="fatigue" type="number" min="1" max="5" step="1" inputmode="numeric"></label>
-        <label>Estresse percebido (1–5)<input name="perceived_stress" type="number" min="1" max="5" step="1" inputmode="numeric"></label>
-        <label>Qualidade do sono (1–5)<input name="sleep_quality" type="number" min="1" max="5" step="1" inputmode="numeric"></label>
-        <label>Seguiu a recomendação de ontem?<select name="adherence"><option value="">não informar</option><option value="sim">Sim</option><option value="parcial">Em parte</option><option value="nao">Não</option></select></label>
-        <label>Cafeína hoje (mg)<input name="caffeine_mg" type="number" min="0" max="1500" inputmode="numeric"></label>
-        <label>Último café (hora)<input name="caffeine_last_time" type="time"></label>
-        <label>Álcool (doses)<input name="alcohol_units" type="number" min="0" max="30" inputmode="numeric"></label>
-        <label>Água (ml)<input name="water_ml" type="number" min="0" max="10000" step="50" inputmode="numeric"></label>
-        <label class="full">Sintomas ou observações<input name="symptoms" maxlength="300" placeholder="opcional"></label>
-        <fieldset class="full tri"><legend>Sintomas de hoje</legend>
-          ${SYMS.map((x) => `<label class="opt"><input type="checkbox" data-sym="${esc(x.chave)}" data-urg="${x.urgente ? 1 : 0}"><span>${esc(x.texto)}${x.urgente ? " (alerta)" : ""}</span></label>`).join("")}
-          <label class="opt"><input type="checkbox" id="sym-none"><span>Não tenho nenhum destes sintomas hoje</span></label>
-          <p class="small muted">Sem marcar nada, a triagem do dia fica como não respondida (e o sistema não sugere aumento de carga nem HIIT).</p>
+      ${h.alertas.length ? `<h2>${h.alertas.length === 1 ? "1 aviso" : h.alertas.length + " avisos"}</h2><div class="notes">${h.alertas.map((a) => `<details><summary>${esc(a.title)}</summary><div class="inner"><p>${esc(a.message)}</p><button class="secondary" data-ack="${a.id}">Entendi, pode ocultar</button></div></details>`).join("")}</div>` : ""}
+      <details class="sheet" id="ck-sheet"><summary>Check-in de hoje</summary><div class="inner"><form class="f" id="checkin">
+        ${scale("sleep_quality", "Como você dormiu?", 5, "muito mal", "muito bem")}
+        ${scale("fatigue", "Cansaço", 5, "nenhum", "exausto")}
+        ${scale("soreness", "Dor muscular", 5, "nenhuma", "muita")}
+        ${scale("perceived_stress", "Estresse", 5, "tranquilo", "muito alto")}
+        <fieldset class="tri"><legend>Algum destes sintomas hoje?</legend>
+          ${SYMS.map((x) => `<label class="opt"><input type="checkbox" data-sym="${esc(x.chave)}" data-urg="${x.urgente ? 1 : 0}"><span>${esc(x.texto)}</span></label>`).join("")}
+          <label class="opt"><input type="checkbox" id="sym-none"><span><strong>Nenhum destes</strong></span></label>
           <div id="urgent-warn" class="card alert urgent" role="alert" hidden><h3>Procure atendimento</h3><p>${esc(URGENT_TXT)}</p></div></fieldset>
-        <button class="primary full" type="submit">Salvar check-in</button></form>
-        <p class="small muted">Sua percepção entra na decisão do treino junto com os indicadores do relógio.</p></div>
-      ${h.proximas_acoes.length ? `<h2>Próximas ações</h2><div class="card"><ul>${h.proximas_acoes.map((a) => `<li>${esc(a)}</li>`).join("")}</ul></div>` : ""}
-      ${h.objetivos.length ? `<h2>Objetivos</h2><div class="card">${h.objetivos.map(goalRow).join("")}</div>` : ""}`;
+        <details><summary>Mais detalhes (opcional)</summary><div class="inner"><div class="f two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr">
+          <label>Recuperação (1–10)<input name="perceived_recovery" type="number" min="1" max="10" step="1" inputmode="numeric"></label>
+          <label>Seguiu a recomendação de ontem?<select name="adherence"><option value="">não informar</option><option value="sim">Sim</option><option value="parcial">Em parte</option><option value="nao">Não</option></select></label>
+          <label>Cafeína (mg)<input name="caffeine_mg" type="number" min="0" max="1500" inputmode="numeric"></label>
+          <label>Último café<input name="caffeine_last_time" type="time"></label>
+          <label>Álcool (doses)<input name="alcohol_units" type="number" min="0" max="30" inputmode="numeric"></label>
+          <label>Água (ml)<input name="water_ml" type="number" min="0" max="10000" step="50" inputmode="numeric"></label>
+          <label class="full">Observações<input name="symptoms" maxlength="300" placeholder="opcional"></label></div></div></details>
+        <button class="primary" type="submit">Salvar check-in</button></form></div></details>
+      <details class="sheet"><summary>Registrar uma refeição</summary><div class="inner"><form class="f" id="quick-meal"><label>O que você comeu? Ex.: 150 g frango grelhado, 200 g arroz cozido
+          <input name="texto" autocomplete="off" required></label><button class="primary" type="submit">Registrar</button></form></div></details>
+      ${h.proximas_acoes.length ? `<h2>Para não esquecer</h2><div class="card"><ul>${h.proximas_acoes.map((a) => `<li>${esc(a)}</li>`).join("")}</ul></div>` : ""}
+      ${h.objetivos.length ? `<h2>Objetivos</h2><div class="card">${h.objetivos.map(goalRow).join("")}</div>` : ""}
+      ${susp ? calibCard(cal) : ""}
+      <p class="subtle">${esc(cal.dias_validos)} dias de dados da pulseira · ${esc((cal.rotulo || "").split(" (")[0].toLowerCase())}. O painel compara você com você mesmo; não é diagnóstico.</p>`;
+    $("#open-ck").onclick = () => { const d = $("#ck-sheet"); d.open = true; d.scrollIntoView({ behavior: "smooth", block: "start" }); };
     const ck = await api("/api/checkin");
-    Object.entries(ck).forEach(([k, v]) => { const el = $(`#checkin [name=${k}]`); if (el && v != null && k !== "adherence") el.value = v; });
+    Object.entries(ck).forEach(([k, v]) => { if (v == null || k === "adherence") return;
+      const r = $(`#checkin input[type=radio][name=${k}][value="${Math.round(v)}"]`); if (r) { r.checked = true; return; }
+      const el = $(`#checkin [name=${k}]:not([type=radio])`); if (el) el.value = v; });
     if (ck.adherence != null) $("#checkin [name=adherence]").value = ck.adherence >= 1 ? "sim" : ck.adherence > 0 ? "parcial" : "nao";
     const syms = $$("#checkin [data-sym]"), none = $("#sym-none"), warn = $("#urgent-warn");
     const updWarn = () => { warn.hidden = !syms.some((c) => c.checked && c.dataset.urg === "1"); };   // local: não depende do servidor
