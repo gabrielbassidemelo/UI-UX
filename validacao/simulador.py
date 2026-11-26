@@ -30,7 +30,7 @@ DIAS = 180
 INICIO = date(2026, 1, 5)  # uma segunda-feira
 
 # Sementes: dois conjuntos DISJUNTOS por construcao (faixas de inteiros que nao se cruzam).
-SEMENTE_BASE = {"desenvolvimento": 10_000, "avaliacao": 5_000_000}
+SEMENTE_BASE = {"desenvolvimento": 10_000, "avaliacao": 5_000_000, "confirmacao": 20_000_000}  # >= 9.000.000; 9M exato colidiria com avaliacao (5M + cid 40..43 * 100k)
 PASSO_CENARIO = 100_000  # cada cenario/celula usa uma faixa propria de ate 100 mil sementes
 
 INDICADORES = ["hrv_last_night", "resting_hr", "sleep_score", "sleep_seconds",

@@ -1,5 +1,7 @@
 # Validação estatística por SIMULAÇÃO dos detectores do healthmon
 
+> **Atualização:** as seções 1–9 são a medição ORIGINAL (código antes das correções) e foram mantidas sem alteração. A seção 10 traz as correções e a nova medição (conjunto de confirmação, também SIMULAÇÃO).
+
 > **ATENÇÃO — ISTO SÃO SIMULAÇÕES, NÃO VALIDAÇÃO COM DADOS REAIS.**
 > Todos os números abaixo vêm de séries **sintéticas** geradas por um simulador escrito para este
 > estudo. Nenhum dado de pessoa real foi usado. Os resultados dizem como os detectores se comportam
@@ -291,7 +293,7 @@ Aviso: comparar detectores em pontos de operação diferentes (FA/dia de 5% a 87
 5. **Leituras travadas e valores absurdos isolados:** não elevam o falso alarme persistente (cenário "extremos" tem FA menor que o realista: 16% vs 19%); absurdos podem inflar o desvio da linha de base e reduzir a sensibilidade (hipótese; não medida). Nenhuma validação de plausibilidade fisiológica é feita antes de `assess` (um HRV = 400 ms entra no cálculo). 
 6. **Mudanças de rotina** (cenário "rotina": passos/sono por 10–21 dias) elevam o persistente (qualquer) de 19% para 22% dos dias, e a `tendência` de 46% para 53%; o `alerts` não muda (os alertas olham HRV, FC, estresse, sono, mas passos não entram).
 
-## 7. Recomendações (NÃO aplicadas; esta tarefa só mede)
+## 7. Recomendações (na medição original não foram aplicadas; ver seção 10 para o que foi feito depois)
 
 Qualquer mudança abaixo deve ser reavaliada com este mesmo simulador (e depois com dados reais do próprio usuário, sob supervisão) antes de adotada.
 
@@ -325,3 +327,138 @@ HEALTHMON_VAL_CONJUNTO=desenvolvimento python -m pytest tests/test_validacao_est
 As faixas do teste de CI (falso alarme persistente ≤ 33%, só HRV ≤ 12%, alerts ≤ 30%; `readiness` fora de normal sem evento ≤ 18%; sensibilidade 2 dp × 10 d ≥ 75% (qualquer), ≥ 30% (só HRV),
 ≥ 70% (alerts); `readiness` "normal" ≤ 50% dos dias do evento; atraso mediano ≤ 3 d) foram escolhidas a partir do conjunto de **desenvolvimento** com folga larga: são travas de regressão,
 **não** metas de qualidade — vários desses valores são altos de propósito para refletir o comportamento atual.
+
+## 10. Correções e nova medição (SIMULAÇÃO com dados sintéticos; não é validação com dados reais)
+
+Tudo abaixo vem do mesmo simulador, com séries sintéticas. Não prova utilidade clínica nem comportamento com dados reais.
+Os números das seções 1–9 são a medição original e não foram alterados.
+
+### 10.1 O que foi corrigido (e o que não foi)
+
+| Defeito (seção 6) | Correção | Situação |
+|---|---|---|
+| 1. `changepoint` descalibrado | `healthmon/stats.py`: z robusto pré-branqueado por AR(1) (φ estimado na referência, limitado a [0,3; 0,8], só pares de dias consecutivos); z winsorizado em ±3; k = 0,35, h = 8 (antes 0,5 e 5); CUSUM limitado a 1,5·h e resultado = mudança **em curso** (antes: "a última encontrada na janela", que ficava por semanas) | tratado; k/h escolhidos no conjunto de desenvolvimento |
+| 2. `trend` sem correção de autocorrelação | `healthmon/analysis.py`: variância de Mann–Kendall com correção de empates e fator de autocorrelação (Hamed–Rao só com lag 1, com correção de viés, nunca < 1); limiar p < 0,01 (antes 0,05); `variacao_pct` ≥ 3% mantido | tratado |
+| 3. Agregação "qualquer dos 7" | só no **alerta** (`healthmon/alerts.py`): indicador isolado exige ≥ 5 de 7 dias fora da faixa (`persistente_isolado`); o alerta composto de recuperação exige sinais de ≥ 2 grupos fisiológicos (autonômico, sono, energia, estresse) em 3 dos últimos 4 dias | tratado parcialmente (ver abaixo) |
+| 5/recomendação 6. Implausibilidade | `Store.value` descarta valores fora de limites fisiológicos amplos (os de `parse.PLAUSIBLE` + estresse do sono 1–100); tratados como ausentes | tratado |
+| 4. Perturbações curtas | não alterado | é um compromisso de desenho; deve ser comunicado |
+
+**Não alterado de propósito:** (a) o padrão `persistente` de `assess` (4 de 7 dias, média 7 d ≥ 1,25 dp) continua como estava: é o estado exibido ao usuário e mudar seu significado
+sem nova rodada de medição não é conservador; seu falso alarme "qualquer dos 7" segue ~21–23% por dia (abaixo). (b) `readiness`: sem alteração. (c) Nada foi ajustado depois de olhar o conjunto de confirmação.
+
+### 10.2 Protocolo
+
+- Ajustes de k, h, φ, p-limite e do critério 5/7 foram feitos **só** no conjunto `desenvolvimento` (sementes 10.000+). O conjunto de `avaliacao` (seções 1–9) já tinha sido usado e não foi reutilizado para decidir.
+- Novo conjunto `confirmacao` (sementes a partir de 20.000.000, disjunto dos anteriores; há teste de disjunção). Mesmos tamanhos da avaliação (1.920 séries de 180 dias; detectores caros em subconjuntos de 20–60 séries).
+- Os arquivos de saída em disco mostram **uma execução por versão do código** no conjunto de confirmação (antes: código de HEAD para `stats.py`, `analysis.py`, `alerts.py`; depois: código corrigido), cada uma com ~5 min,
+  executadas antes desta etapa de documentação, com os três arquivos de detectores sem alteração desde então (data de modificação anterior às execuções). Esta etapa **não** executou o conjunto de novo nem alterou detectores depois de ver os números.
+  Limite: a prova é circunstancial (datas de arquivos e meta do JSON), não um registro assinado.
+- "Antes" = código original medido **no mesmo conjunto de confirmação** (comparação justa; os números originais da seção 3, no conjunto de avaliação, são parecidos: changepoint 86,5%, tendência 46,5%, alerts 18,1%).
+- Números brutos: `validacao/resultados.json › correcoes_confirmacao` (chave nova; as antigas não foram tocadas).
+- Os mesmos IC: Wilson para sensibilidades, bootstrap por série para taxas por dia. "Antes" e "depois" são **conjuntos de sementes iguais**, então a diferença entre as colunas não é ruído de sorteio das séries.
+
+### 10.3 Falso alarme e estabilidade (série realista sem evento, confirmação)
+
+| Detector | FA/dia antes | FA/dia depois | ≥1 ativação em 30 d (antes → depois) | viradas de estado/dia (antes → depois) |
+|---|---|---|---|---|
+| changepoint (qualquer dos 7) | 87,3% (85,7%–88,7%) | **12,0% (10,6%–13,4%)** | 100% → 60% | 4,7% → 7,3% |
+| changepoint (só HRV) | 27,8% (25,7%–29,8%) | 1,8% (1,3%–2,4%) | 67% → 14% | 4,4% → 1,3% |
+| tendência (qualquer dos 7) | 48,0% (46,5%–49,4%) | **13,4% (12,3%–14,5%)** | 99% → 72% | 12,8% → 6,7% |
+| tendência (só HRV) | 11,2% (10,1%–12,4%) | 2,4% (1,8%–2,9%) | 58% → 20% | 4,3% → 1,4% |
+| alerts.evaluate (qualquer) | 18,8% (16,9%–20,8%) | **15,4% (13,7%–17,1%)** | 94% → 87% | 12,4% → 11,0% |
+| alerts: só indicadores isolados | 16,1% (14,3%–17,9%) | 13,1% (11,7%–14,8%) | 88% → 81% | 10,7% → 9,1% |
+| alerts: só composto (recuperação) | 5,9% (5,1%–6,9%) | 4,1% (3,4%–5,0%) | 60% → 53% | 6,1% → 4,6% |
+| assess persistente (qualquer dos 7), não alterado | 20,9% (19,9%–22,1%) | 23,1% (22,1%–24,2%) | 94% → 94% | 12,6% → 13,2% |
+| assess persistente (só HRV), não alterado | 3,3% (2,8%–3,7%) | 3,9% (3,4%–4,3%) | 34% → 38% | 2,8% → 3,2% |
+| readiness (nível ≠ normal), não alterado | 5,3% (4,4%–6,2%) | 6,7% (5,9%–7,7%) | 63% → 75% | 7,0% → 8,9% |
+| REF a: z ≥ 2 no dia (qualquer) | 18,7% (18,1%–19,3%) | 19,5% (18,9%–20,1%) | 100% → 100% | 26,0% → 26,3% |
+| REF a: z ≥ 2 (só HRV) | 3,1% (2,9%–3,4%) | 3,6% (3,3%–3,8%) | 59% → 65% | 5,3% → 5,9% |
+| REF b: 7 d vs 28 d (qualquer) | 41,9% (40,7%–43,3%) | 41,7% (40,6%–43,0%) | 100% → 100% | 14,1% → 14,2% |
+| REF b: 7 d vs 28 d (só HRV) | 8,6% (7,8%–9,4%) | 9,7% (8,9%–10,5%) | 56% → 62% | 4,3% → 4,8% |
+
+Em ruído i.i.d. de um indicador, o `changepoint` agora dispara em < 5% dos dias (teste automatizado; antes ~20%).
+
+**Leitura honesta:** `changepoint` e `tendência` saíram de "ruído quase permanente" para ~12–13% por dia em qualquer dos 7 (e 2% só HRV), abaixo da referência z ≥ 2 (19,5%) e muito abaixo da referência (b) (41,7%). Isso **ainda não** atinge a meta de < 5%/dia da recomendação 1
+para "qualquer dos 7" (a meta é atingida só HRV e em um indicador i.i.d.), e em 30 dias 60–72% das janelas ainda têm algum dia ativo. O `alerts` melhorou pouco (18,8% → 15,4%): seguem ~87% das janelas de 30 dias com algum alerta (sem cooldown).
+
+**Efeito colateral do filtro de plausibilidade (piora):** nos detectores que não foram alterados (`assess` persistente, `readiness`, e também as referências z ≥ 2/(b), que leem o mesmo `Store`), o falso alarme **subiu** um pouco com o descarte de valores absurdos:
+persistente qualquer 20,9% → 23,1% (ICs quase encostam), readiness 5,3% → 6,7% (ICs se sobrepõem em parte; janelas de 30 d com ≥1 dia reduzido 63% → 75%), referência z ≥ 2 18,7% → 19,5%. Hipótese **não testada**: sem os absurdos a base fica mais estreita e dias normais passam a parecer mais extremos.
+O filtro continua correto (um HRV de 400 ms não pode entrar no cálculo), mas o custo existe e não foi investigado.
+
+### 10.4 Sensibilidade e atraso (confirmação)
+
+Perturbação de 3–10 dias em todos os indicadores, durante o evento (IC95% Wilson; 160 séries por magnitude; `alerts`/`readiness`: 80). Atraso = mediana em dias (antes → depois).
+
+| Detector | 1 dp antes | 1 dp depois | 2 dp antes | 2 dp depois | atraso 1 dp | atraso 2 dp |
+|---|---|---|---|---|---|---|
+| changepoint (qualquer dos 7) | 97% (93%–99%) | **43% (36%–51%)** | 100% (98%–100%) | **73% (66%–79%)** | 0 → 1 | 0 → 1 |
+| changepoint (só HRV) | 56% (48%–63%) | **16% (11%–22%)** | 69% (62%–76%) | **26% (19%–33%)** | 0 → 2 | 1 → 5 |
+| tendência (qualquer dos 7) | 88% (81%–92%) | **49% (41%–56%)** | 92% (87%–96%) | **63% (55%–70%)** | 0 → 1 | 0 → 1 |
+| tendência (só HRV) | 36% (29%–44%) | **16% (11%–22%)** | 57% (49%–64%) | **23% (17%–30%)** | 2 → 3 | 2 → 5 |
+| alerts.evaluate (qualquer) | 66% (55%–76%) | 69% (58%–78%) | 94% (86%–97%) | 91% (83%–96%) | 2 → 2 | 1 → 1 |
+| alerts: só composto | 50% (39%–61%) | 45% (35%–56%) | 92% (85%–97%) | 90% (81%–95%) | 2 → 2,5 | 2 → 2 |
+| assess persistente (qualquer), não alterado | 75% (68%–81%) | 79% (72%–85%) | 89% (83%–93%) | 90% (84%–94%) | 1 → 1 | 1 → 1 |
+| assess persistente (só HRV), não alterado | 29% (22%–36%) | 31% (24%–38%) | 54% (46%–61%) | 57% (50%–65%) | 2 → 2 | 3 → 3 |
+| readiness (≠ normal), não alterado | 54% (43%–64%) | 65% (54%–75%) | 94% (86%–97%) | 94% (86%–97%) | 1 → 1 | 0 → 0 |
+| REF a: z ≥ 2 (qualquer) | 90% (84%–94%) | 92% (87%–95%) | 98% (94%–99%) | 98% (95%–99%) | 0 → 0 | 0 → 0 |
+| REF a: z ≥ 2 (só HRV) | 39% (32%–47%) | 41% (33%–48%) | 70% (62%–77%) | 76% (69%–82%) | 1 → 1 | 0 → 0 |
+| REF b: 7 d vs 28 d (qualquer) | 82% (76%–88%) | 88% (81%–92%) | 95% (90%–97%) | 96% (92%–98%) | 0 → 0 | 0 → 0 |
+| REF b: 7 d vs 28 d (só HRV) | 46% (38%–53%) | 49% (41%–56%) | 65% (57%–72%) | 69% (62%–76%) | 2 → 2 | 2 → 2 |
+
+Degrau persistente e deriva gradual de 1 dp (sensibilidade em 14 d / 30 d; antes → depois):
+
+| Detector | degrau 1 dp | deriva 1 dp | atraso mediano do degrau |
+|---|---|---|---|
+| changepoint (qualquer) | 100% → **71%** | 100% → **80%** | 0 → 4 |
+| changepoint (só HRV) | 74% → **15%** | 79% → **22%** | 1 → 10,5 |
+| tendência (qualquer) | 100% → **86%** | 100% → **71%** | 0,5 → 4 |
+| tendência (só HRV) | 78% → **38%** | 62% → **12%** | 5 → 6,5 |
+| alerts.evaluate | 100% → 100% | 93% → 93% | 2 → 2 |
+| alerts: só composto | 83% → 83% | 80% → **67%** | 3 → 4 |
+| assess persistente (qualquer) / só HRV | 100% → 100% / 49% → 56% | 91% → 96% / 42% → 51% | 2 → 2 / 5 → 5 |
+| readiness | 80% → 90% | 77% → 83% | 3 → 2 |
+| REF a z ≥ 2 / REF b (qualquer) | 99% → 99% / 100% → 100% | 100% → 100% / 100% → 99% | 1 → 0 / 0 → 0 |
+
+**Onde a sensibilidade piorou (com diferença distinguível, ICs que não se sobrepõem):**
+- `changepoint`: 97% → 43% (1 dp) e 100% → 73% (2 dp) em perturbações curtas; só HRV 56% → 16%. No degrau persistente de 1 dp: 100% → 71% (só HRV 74% → 15%) e atraso mediano de 0 → 4 dias (só HRV 1 → 10,5).
+- `tendência`: 88% → 49% (1 dp) e 92% → 63% (2 dp); só HRV 36% → 16% e 57% → 23%. Deriva de 1 dp: 100% → 71% (só HRV 62% → 12%).
+- `alerts.evaluate`: sem piora distinguível nas perturbações (66% → 69% em 1 dp; 94% → 91% em 2 dp); o alerta composto perdeu sensibilidade na deriva (80% → 67%, ICs largos, 30 séries) e levou 1 dia a mais no degrau (3 → 4).
+- Boa parte da queda do `changepoint`/`tendência` é o preço da calibração: parte da "sensibilidade" original era acaso (a chance de ativar em 3 dias sem evento era 91% no changepoint e 60% na tendência; agora 18% e 20%). Ainda assim, a sensibilidade corrigida é **bem menor** que a das referências simples (z ≥ 2: 92% em 1 dp; (b): 88%), com falso alarme menor (12–13% vs 19,5%/41,7%): troca de sensibilidade por especificidade, não ganho nos dois lados.
+
+### 10.5 Comparação com as duas referências simples (confirmação)
+
+Dos 156 pares evento × detector × referência: antes, 46 "sistema pior" (39 com diferença distinguível), 99 compromisso, 11 "sistema melhor"; depois, 13 "sistema pior" (9 distinguíveis), 132 compromisso, 11 "melhor".
+O `changepoint` e a `tendência` deixaram de ser **dominados** pelas referências (antes: mesma sensibilidade com 2–5 vezes mais falso alarme no degrau/deriva), mas passaram a "compromisso": menos falso alarme e muito menos sensibilidade.
+Os "sistema pior" restantes são do `assess` (persistente qualquer e só HRV, e pontual) contra z ≥ 2, **sem mudança** em relação à seção 5: persistente com sensibilidade menor (ex.: 1 dp: 79% vs 92%) e falso alarme igual ou maior (23,1% vs 19,5%).
+A tendência e o changepoint "só HRV" têm, em 1 dp, sensibilidade de 16% contra 41% (z ≥ 2 só HRV) com falso alarme 2% vs 4%.
+
+### 10.6 `readiness`: recomendação incorreta (confirmação, antes → depois; código do readiness não alterado)
+
+| Situação | antes | depois |
+|---|---|---|
+| Sem evento: dias com nível ≠ normal (reduzir sem motivo) | 5,3% (4,4%–6,2%) | 6,7% (5,9%–7,7%) |
+| Sem evento: janelas de 30 d com ≥ 1 dia reduzido | 63% | 75% |
+| M = 0,5: dias do evento mantidos em "normal" | 86,4% (81,0%–91,1%) | 83,6% (77,0%–89,5%) |
+| M = 1: idem | 72,4% (65,5%–79,0%) | 66,8% (59,7%–73,1%) |
+| M = 1,5: idem | 41,8% (34,3%–49,2%) | 34,4% (27,2%–41,4%) |
+| M = 2: idem | 24,6% (19,4%–30,6%) | 20,0% (14,7%–25,9%) |
+| M = 2: séries sem nenhum dia reduzido | 6% | 6% |
+
+A mudança do `readiness` vem só do filtro de plausibilidade (entrada): mais recomendações de reduzir sem evento (piora) e menos "normal" nos dias de evento (melhora), efeitos moderados e ICs que se sobrepõem em parte.
+A recomendação 5 da seção 7 continua válida: "normal" não significa "recuperado".
+
+### 10.7 Limitações desta rodada
+
+- Detectores caros (`alerts`, `readiness`) em 20–60 séries por cenário; ICs largos, sobretudo nas células de degrau/deriva (30 séries).
+- A calibração (k, h, p, 5/7) foi feita num só gerador; não mede generalização para outro gerador nem para dados reais.
+- Nenhuma meta foi "atingida" por ajuste fino: ao contrário, o falso alarme de `changepoint`/`tendência` em "qualquer dos 7" (12–13%) e do `alerts` (15%) continua alto, e o preço foi sensibilidade.
+- O assess persistente "qualquer dos 7" (23%) não foi corrigido; uma nova rodada precisa de um conjunto de sementes novo (o de confirmação já foi consumido).
+- O ganho de falso alarme e a perda de sensibilidade aqui descritos valem para o simulador (eventos que movem todos os indicadores ao mesmo tempo); com perturbações reais pode ser diferente.
+
+### 10.8 Reprodução
+
+```
+. .venv/bin/activate
+python -m validacao.avaliar --conjunto confirmacao --saida /caminho/confirmacao.json   # ~5 min (4 processos); gerar o "antes" em cópia do repositório com stats/analysis/alerts de HEAD
+python -m pytest tests/test_validacao_estatistica.py                                   # < 20 s, versão reduzida (inclui negativos e cálculo à mão de Mann–Kendall)
+```

@@ -155,31 +155,66 @@ def data_quality(store: an.Store, end: date, days: int = 14) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------ mudança de nível
-def changepoint(store: an.Store, key: str, end: date, days: int = 60, k: float = 0.5,
-                h: float = 5.0) -> dict[str, Any] | None:
-    """CUSUM bilateral sobre z robusto (referência: primeiros 28 dias da janela).
-    Retorna a data estimada do início da mudança mais recente, se houver."""
+CP_K, CP_H, CP_TETO, CP_PHI_MIN, CP_PHI_MAX, CP_NPHI, CP_CLIP = 0.35, 8.0, 1.5, 0.3, 0.8, 60, 3.0
+
+
+def _lag1(zs: Sequence[tuple[date, float]]) -> float:
+    """Autocorrelação de lag 1 (só pares de dias consecutivos), limitada a [CP_PHI_MIN, CP_PHI_MAX]."""
+    num = den = 0.0
+    for (d0, a), (d1, b) in zip(zs, zs[1:]):
+        if (d1 - d0).days == 1:
+            num += a * b
+    den = sum(a * a for _, a in zs)
+    r = num / den if den else 0.0
+    r += (1 + 3 * r) / max(len(zs), 1)       # correção do viés (para baixo) do lag-1 em amostra curta
+    return min(CP_PHI_MAX, max(CP_PHI_MIN, r))
+
+
+def changepoint(store: an.Store, key: str, end: date, days: int = 60, k: float | None = None,
+                h: float | None = None, teto: float | None = None) -> dict[str, Any] | None:
+    """CUSUM bilateral sobre z robusto PRÉ-BRANQUEADO (referência: primeiros 28 dias da janela).
+
+    Correção (validação por simulação, docs/VALIDACAO_ESTATISTICA.md §10): o CUSUM clássico supõe ruído
+    independente; em séries diárias (autocorrelação lag-1 ~0,3–0,7) ele disparava em 46–75% dos dias.
+    Agora (i) o z é pré-branqueado por um AR(1) com φ estimado na referência (limitado a [0,3; 0,8], o que
+    também trata lacunas de dias), (ii) k e h foram recalibrados no conjunto de DESENVOLVIMENTO, e (iii) o
+    resultado é a mudança EM CURSO: o CUSUM não é zerado após o alarme (fica limitado a `teto`×h, para
+    decair depois que o desvio acaba) e só se reporta enquanto a estatística atual estiver acima de h.
+    Retorna a data estimada do início da mudança em curso, se houver."""
+    k = CP_K if k is None else k
+    h = CP_H if h is None else h
+    teto = CP_TETO if teto is None else teto
     pts = store.values(key, end - timedelta(days=days - 1), end)
     if len(pts) < 35:
         return None
     ref = [an._tf(key, v) for _, v in pts[:28]]
     med = st.median(ref)
     sd = max(1.4826 * st.median([abs(v - med) for v in ref]), 0.85 * st.stdev(ref)) or 1.0
+    zs = [(d_, max(-CP_CLIP, min(CP_CLIP, (an._tf(key, v) - med) / sd))) for d_, v in pts]   # winsoriza (robusto a leituras absurdas)
+    phi = _lag1(zs[:CP_NPHI])
     hi = lo = 0.0
-    start_hi = start_lo = None
-    found = None
-    for d_, v in pts[28:]:
-        z = (an._tf(key, v) - med) / sd
+    start_hi = start_lo = det_hi = det_lo = None
+    prev = zs[27]
+    for d_, z in zs[28:]:
+        g = (d_ - prev[0]).days
+        f = phi ** g
+        e = (z - f * prev[1]) / math.sqrt(1 - f * f)
+        prev = (d_, z)
         if hi == 0:
-            start_hi = d_
+            start_hi, det_hi = d_, None
         if lo == 0:
-            start_lo = d_
-        hi, lo = max(0.0, hi + z - k), max(0.0, lo - z - k)
-        if hi > h:
-            found, hi = {"direcao": "alta", "inicio": start_hi.isoformat(), "detectada": d_.isoformat()}, 0.0
-        if lo > h:
-            found, lo = {"direcao": "queda", "inicio": start_lo.isoformat(), "detectada": d_.isoformat()}, 0.0
-    return found
+            start_lo, det_lo = d_, None
+        hi, lo = min(teto * h, max(0.0, hi + e - k)), min(teto * h, max(0.0, lo - e - k))
+        if hi > h and det_hi is None:
+            det_hi = d_
+        if lo > h and det_lo is None:
+            det_lo = d_
+    ativo = []
+    if hi > h:
+        ativo.append((hi, {"direcao": "alta", "inicio": start_hi.isoformat(), "detectada": det_hi.isoformat()}))
+    if lo > h:
+        ativo.append((lo, {"direcao": "queda", "inicio": start_lo.isoformat(), "detectada": det_lo.isoformat()}))
+    return max(ativo, key=lambda x: x[0])[1] if ativo else None
 
 
 # ------------------------------------------------------------------- previsão

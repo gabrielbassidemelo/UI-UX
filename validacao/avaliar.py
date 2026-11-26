@@ -32,13 +32,21 @@ from .simulador import INDICADORES
 
 HRV = "hrv_last_night"
 SISTEMA = ["assess_persistente", "assess_persistente_hrv", "assess_pontual", "tendencia",
-           "changepoint", "alertas", "readiness_nao_normal"]
+           "changepoint", "alertas", "readiness_nao_normal",
+           # acrescentados na rodada de correcoes (indicadores isolados e concordancia de grupos); ver docs secao 10
+           "assess_persistente_2grupos", "tendencia_hrv", "changepoint_hrv", "changepoint_2grupos",
+           "alertas_individual", "alertas_composto"]
 BASES = ["z2", "z2_hrv", "w7v28", "w7v28_hrv"]
 TODOS = SISTEMA + BASES
 GRUPOS_DE = {"assess_persistente": "assess", "assess_persistente_hrv": "assess", "assess_pontual": "assess",
              "tendencia": "tendencia", "changepoint": "changepoint", "alertas": "alertas",
+             "assess_persistente_2grupos": "assess", "tendencia_hrv": "tendencia", "changepoint_hrv": "changepoint",
+             "changepoint_2grupos": "changepoint", "alertas_individual": "alertas", "alertas_composto": "alertas",
              "readiness_nao_normal": "readiness", "z2": "base", "z2_hrv": "base", "w7v28": "base",
              "w7v28_hrv": "base"}
+# grupos fisiologicos usados SO para medir "concordancia de >= 2 grupos" (definicao do avaliador, independente do produto)
+GRUPO_IND = {"hrv_last_night": "autonomico", "resting_hr": "autonomico", "sleep_score": "sono", "sleep_seconds": "sono",
+             "sleep_stress_avg": "sono", "stress_avg": "estresse", "steps": "atividade"}
 CAROS = {"alertas", "readiness"}  # grupos caros (leem o banco a cada dia)
 
 # ----------------------------------------------------------------------------- cenarios
@@ -167,15 +175,18 @@ def flags_dia(store, db, cfg, day: date, grupos: set[str]) -> dict:
     out: dict = {}
     if "assess" in grupos:
         per = pon = per_h = 0
+        gr = set()
         for k in INDICADORES:
             a = an.assess(store, k, day)
             if a.base.confiavel and a.leitura == "desfavoravel":
                 if a.padrao == "persistente":
                     per = 1
+                    gr.add(GRUPO_IND[k])
                     per_h |= int(k == HRV)
                 elif a.padrao == "pontual":
                     pon = 1
-        out.update(assess_persistente=per, assess_persistente_hrv=per_h, assess_pontual=pon)
+        out.update(assess_persistente=per, assess_persistente_hrv=per_h, assess_pontual=pon,
+                   assess_persistente_2grupos=int(len(gr) >= 2))
     if "tendencia" in grupos:
         f = 0
         for k in INDICADORES:
@@ -183,23 +194,32 @@ def flags_dia(store, db, cfg, day: date, grupos: set[str]) -> dict:
             bom = METRICS[k].bom
             if (d == "descendo" and bom == "alto") or (d == "subindo" and bom == "baixo"):
                 f = 1
+                if k == HRV:
+                    out["tendencia_hrv"] = 1
         out["tendencia"] = f
+        out.setdefault("tendencia_hrv", 0)
     if "changepoint" in grupos:
-        f = 0
+        f, gr, hrv_cp = 0, set(), 0
         for k in INDICADORES:
             r = stats.changepoint(store, k, day)
             if r and ((r["direcao"] == "queda") == (METRICS[k].bom == "alto")):
                 f = 1
-        out["changepoint"] = f
+                gr.add(GRUPO_IND[k])
+                hrv_cp |= int(k == HRV)
+        out.update(changepoint=f, changepoint_hrv=hrv_cp, changepoint_2grupos=int(len(gr) >= 2))
     if "base" in grupos:
         out["z2"] = int(any(_z2(store, k, day) for k in INDICADORES))
         out["z2_hrv"] = _z2(store, HRV, day)
         out["w7v28"] = int(any(_w7v28(store, k, day) for k in INDICADORES))
         out["w7v28_hrv"] = _w7v28(store, HRV, day)
     if "alertas" in grupos:
-        out["alertas"] = int(len(alerts.evaluate(cfg, db, day)) > 0)
+        ids = alerts.evaluate(cfg, db, day)
         with db.conn() as c:
+            kinds = {r["kind"] for r in c.execute("SELECT kind FROM alerts").fetchall()}
             c.execute("DELETE FROM alerts")
+        out["alertas"] = int(len(ids) > 0)
+        out["alertas_composto"] = int("recuperacao_insuficiente" in kinds)
+        out["alertas_individual"] = int(bool(kinds - {"recuperacao_insuficiente"}))
     if "readiness" in grupos:
         nivel = training.readiness(db, cfg, day)["nivel"]
         out["readiness_nao_normal"] = int(nivel != "normal")

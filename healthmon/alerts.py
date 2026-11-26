@@ -47,9 +47,7 @@ def evaluate(cfg: Config, db: Database, day: date) -> list[int]:
 
     def persistent_bad(key: str) -> an.Assessment | None:
         a = an.assess(store, key, day, w, mn)
-        if a.base.confiavel and a.padrao == "persistente" and a.leitura == "desfavoravel":
-            return a
-        return None
+        return a if an.persistente_isolado(a) else None   # indicador isolado: critério 5/7 dias (multiplicidade)
 
     for key, kind in (("hrv_last_night", "hrv_queda_persistente"), ("resting_hr", "fc_repouso_aumento"),
                       ("stress_avg", "estresse_elevado")):
@@ -67,9 +65,9 @@ def evaluate(cfg: Config, db: Database, day: date) -> list[int]:
         fire("sono_deterioracao", (f"{METRICS[a.key].label} abaixo do seu padrão em {a.dias_fora7} dos "
                                    "últimos 7 dias. Veja o relatório para sugestões de rotina."), a.as_dict())
 
-    rec = an.recovery(store, day, w, mn)
+    rec = an.recovery(store, day, w, mn, grupos_independentes=True)   # exige ≥2 grupos fisiológicos distintos
     if rec.persistente:
-        fire("recuperacao_insuficiente", ("Sinais desfavoráveis em pelo menos 3 dos últimos 4 dias: "
+        fire("recuperacao_insuficiente", ("Sinais desfavoráveis, de pelo menos 2 grupos distintos (ex.: autonômico e sono), em 3 dos últimos 4 dias: "
                                           + ", ".join(rec.sinais) + ". Sugere-se reduzir a intensidade "
                                           "dos treinos e priorizar recuperação."), rec.__dict__)
     return created
