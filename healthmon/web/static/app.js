@@ -30,9 +30,25 @@
   const todayISO = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const CONF = { alta: "Confiança alta", "média": "Confiança média", media: "Confiança média", baixa: "Confiança baixa" };
   const chip = (cls, txt) => `<span class="chip ${esc(String(cls).replace(/\s/g, "_"))}">${esc(txt)}</span>`;
-  const refs = (list) => (list || []).map((r) => `<p class="ref">${esc(r.referencia)} ${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">DOI</a>` : ""}
-    <br>${chip("", "Evidência " + r.grau)} ${r.verificado ? chip("ok", "referência conferida") : chip("", "conferência automática pendente")}<br>${esc(r.resumo)} <em>Limitações: ${esc(r.limitacoes)}</em></p>`).join("");
+  const CLASSE = { verificada: ["ok", "Verificada"], parcialmente_verificada: ["media", "Parcialmente verificada"], nao_verificada: ["baixa", "Não verificada"], inadequada: ["erro", "Inadequada para a regra"] };
+  const VERIF_AVISO = "Verificação feita por modelos de IA em bases públicas; não é auditoria humana independente";
+  const seal = (r) => { const c = CLASSE[r.classe] || CLASSE.nao_verificada; return chip(c[0], c[1]); };
+  const refs = (list) => (list || []).map((r) => `<p class="ref">${esc(r.referencia)} ${r.url ? `<a class="tap" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">DOI</a>` : ""}
+    <br>${chip("", "Evidência " + r.grau)} ${seal(r)}<br>${esc(r.resumo)} <em>Limitações: ${esc(r.limitacoes)}</em>${r.observacao_verificacao ? `<br><span class="small muted">Verificação: ${esc(r.observacao_verificacao)}</span>` : ""}</p>`).join("")
+    + ((list || []).length ? `<p class="small muted">${VERIF_AVISO}.</p>` : "");
   const evid = (list, label = "Evidências científicas") => list && list.length ? `<details><summary>${label} (${list.length})</summary><div class="inner">${refs(list)}</div></details>` : "";
+  const URGENT_TXT = "Sintoma de alerta: procure atendimento de urgência agora (SAMU 192). Não treine e não use este painel para decidir o que fazer.";
+  const SUSP = { alertas_de_tendencia: "Alertas de tendência", reduzir_treino_por_recuperacao: "Redução de treino por recuperação", progressao_de_carga: "Progressão de carga",
+    calibracao_metabolica: "Calibração metabólica", analise_de_tendencias: "Análise de tendências", comparacoes_longitudinais: "Comparações de longo prazo",
+    avaliacao_das_recomendacoes: "Avaliação das recomendações" };
+  const calibCard = (c) => { const susp = (c.suspenso || []).map((k) => SUSP[k] || k);
+    return `<div class="card calib"><h3 class="sec">Calibração: ${esc(c.rotulo)}</h3>
+      <p class="small">${c.dias_validos} dia(s) com dados válidos${c.proximo ? ` · faltam ${c.proximo.faltam_dias} para o próximo estágio` : ""}.</p>
+      ${c.observacao ? `<p class="notice">${esc(c.observacao)}</p>` : ""}
+      ${susp.length ? `<p class="small"><strong>Ainda suspenso:</strong> ${esc(susp.join("; "))}.</p>` : `<p class="small">Nada suspenso por falta de dados.</p>`}
+      <p class="small muted">${esc(c.nota)}</p></div>`; };
+  const blockCard = (title, reason, faltam) => `<div class="card alert"><h3>${esc(title)}</h3><p>${esc(reason || "Indisponível no momento.")}</p>
+    ${faltam && faltam.length ? `<p class="small"><strong>O que falta:</strong> ${esc(faltam.join(", "))}.</p>` : ""}<button class="link tap" data-go="config">Abrir perfil e triagem</button></div>`;
   function recCard(i) {
     return `<div class="card rec"><div class="q">${esc(i.pergunta)}</div><div class="what">${esc(i.o_que_fazer)}</div>
       ${chip(i.confianca, CONF[i.confianca] || i.confianca)}
@@ -43,7 +59,8 @@
   }
   function formData(form) {
     const o = {};
-    $$("input,select,textarea", form).forEach((el) => { if (el.name) o[el.name] = el.type === "checkbox" ? el.checked : el.value; });
+    $$("input,select,textarea", form).forEach((el) => { if (!el.name) return;
+      if (el.type === "radio") { if (el.checked) o[el.name] = el.value; } else o[el.name] = el.type === "checkbox" ? el.checked : el.value; });
     return o;
   }
   function onSubmit(sel, fn) {
@@ -76,7 +93,7 @@
   // ---------------------------------------------------------------- navegação
   const TITLES = { hoje: "Hoje", saude: "Saúde", treino: "Treino", nutricao: "Nutrição", mais: "Mais", metabolismo: "Metabolismo",
     composicao: "Composição corporal", suplementos: "Suplementação", exames: "Exames laboratoriais", evolucao: "Evolução",
-    recomendacoes: "Recomendações", relatorios: "Relatórios", config: "Configurações" };
+    recomendacoes: "Recomendações", relatorios: "Relatórios", config: "Configurações", garmin: "Conferência Garmin" };
   function go(tab, sub = null) { state.tab = tab; state.sub = sub; render(); window.scrollTo(0, 0); }
   $$("nav.tabs button").forEach((b) => (b.onclick = () => go(b.dataset.tab)));
   $("#btn-back").onclick = () => go("mais");
@@ -91,12 +108,15 @@
   }
 
   // ---------------------------------------------------------------- HOJE
+  let SYMS = [];
   async function vHoje() {
-    const h = await api("/api/home");
+    if (!SYMS.length) SYMS = (await api("/api/seguranca/triagem")).sintomas;
+    const [h, cal] = await Promise.all([api("/api/home"), api("/api/calibracao")]);
     $("#demo-banner").hidden = !h.demo;
     $("#subtitle").textContent = `${dateBR(h.dia)} · sincronizado ${dtBR(h.ultima_sincronizacao)}`;
     const rec = h.itens[0], p = h.prontidao, q = h.qualidade_dados, s = h.sessao, n = h.nutricao;
-    const lvl = p.recuperacao_objetiva;
+    const lvl = p.recuperacao_objetiva, sg = h.seguranca || { faltam: [], bloqueios: {} };
+    const trBloq = sg.bloqueios.treino_plano, nuBloq = sg.bloqueios.metas_nutricionais || sg.bloqueios.metas_peso;
     const sessHtml = s.tipo === "forca" ? `<ul>${s.sessao.exercicios.map((e) => `<li>${esc(e.exercicio)} — ${e.series}×${e.reps[0]}–${e.reps[1]}, RIR ${e.rir}</li>`).join("")}</ul>
         <p class="small muted">~${s.sessao.duracao_min} min · ${esc(s.semana || "")}</p>${(s.ajustes || []).map((a) => `<p class="notice">${esc(a)}</p>`).join("")}`
       : s.tipo === "cardio" ? `<p>${esc(s.cardio.duracao_min)} min · ${esc(s.cardio.intensidade)}</p>${s.cardio.ajuste ? `<p class="notice">${esc(s.cardio.ajuste)}</p>` : ""}`
@@ -104,6 +124,9 @@
     const macro = (lbl, cur, tgt, unit) => { const pct = tgt ? Math.min(130, 100 * cur / tgt) : 0;
       return `<div class="row" style="border:0;padding:2px 0"><span>${lbl}</span><span class="r">${nf(cur)} / ${nf(tgt)} ${unit}</span></div><div class="bar ${pct > 108 ? "over" : ""}"><i style="width:${Math.min(100, pct)}%"></i></div>`; };
     view.innerHTML = `
+      ${p.urgente ? `<div class="card alert urgent" role="alert"><h3>Procure atendimento</h3><p>${esc(URGENT_TXT)}</p></div>` : ""}
+      ${calibCard(cal)}
+      ${sg.faltam && sg.faltam.length ? blockCard("Triagem de saúde pendente", "Sem a triagem, treino, metas e suplementos personalizados ficam suspensos.", sg.faltam) : ""}
       ${h.alertas.map((a) => `<div class="card alert"><h3>${esc(a.title)}</h3><p>${esc(a.message)}</p><button class="secondary" data-ack="${a.id}">Entendi</button></div>`).join("")}
       <div class="card"><div class="recovery" style="display:flex"><div class="dot ${lvl}" aria-hidden="true"></div><div>
         <h3>${esc(rec.o_que_fazer)}</h3><p>${esc(p.sinais[0] || "Nenhum sinal desfavorável.")}</p></div></div>
@@ -113,28 +136,51 @@
       ${h.experimento ? `<div class="card"><h3 class="sec">Experimento em andamento: ${esc(h.experimento.nome)}</h3><p>Hoje: <strong>${esc(h.experimento.condicao)}</strong></p>
         ${h.experimento.registrado ? `<p class="small muted">Dia já registrado.</p>` : `<div class="hstack"><button class="secondary" data-exp="${h.experimento.id}" data-ok="1">Segui</button><button class="secondary" data-exp="${h.experimento.id}" data-ok="0">Não segui</button></div>`}</div>` : ""}
       <h2>Treino recomendado</h2>
-      <div class="card"><h3 class="sec">${esc(s.titulo)}</h3>${sessHtml}<button class="link" data-tab="treino">Abrir treino</button></div>
+      ${trBloq && s.tipo !== "descanso" ? blockCard("Treino personalizado suspenso", trBloq, sg.faltam)
+        : `<div class="card"><h3 class="sec">${esc(s.titulo)}</h3>${sessHtml}<button class="link tap" data-tab="treino">Abrir treino</button></div>`}
       <h2>Nutrição de hoje</h2>
-      <div class="card">${n.meta ? macro("Calorias", n.total.kcal, n.meta.kcal, "kcal") + macro("Proteína", n.total.protein_g, n.meta.proteina_g, "g") + macro("Carboidrato", n.total.carb_g, n.meta.carboidrato_g, "g") + macro("Gordura", n.total.fat_g, n.meta.gordura_g, "g")
+      <div class="card">${n.meta_bloqueada ? `<p class="notice">Meta indisponível: ${esc(nuBloq || "complete o perfil e a triagem de saúde")}. ${sg.faltam && sg.faltam.length ? "Falta: " + esc(sg.faltam.join(", ")) + "." : ""}</p>` : n.meta ? macro("Calorias", n.total.kcal, n.meta.kcal, "kcal") + macro("Proteína", n.total.protein_g, n.meta.proteina_g, "g") + macro("Carboidrato", n.total.carb_g, n.meta.carboidrato_g, "g") + macro("Gordura", n.total.fat_g, n.meta.gordura_g, "g")
         : `<p class="muted">Sem meta confirmada. Abra Nutrição para revisar a proposta.</p>`}
         <form class="f" id="quick-meal"><label>Registrar refeição (ex.: 150 g frango grelhado, 200 g arroz cozido)
           <input name="texto" autocomplete="off" required></label><button class="primary" type="submit">Registrar</button></form></div>
       <h2>Como você está?</h2>
       <div class="card"><form class="f two" id="checkin">
-        <label>Recuperação percebida (1–10)<input name="perceived_recovery" type="number" min="1" max="10" inputmode="numeric"></label>
-        <label>Dor muscular (1–5)<input name="soreness" type="number" min="1" max="5" inputmode="numeric"></label>
+        <label>Recuperação percebida (1–10)<input name="perceived_recovery" type="number" min="1" max="10" step="1" inputmode="numeric"></label>
+        <label>Dor muscular (1–5)<input name="soreness" type="number" min="1" max="5" step="1" inputmode="numeric"></label>
+        <label>Fadiga (1–5)<input name="fatigue" type="number" min="1" max="5" step="1" inputmode="numeric"></label>
+        <label>Estresse percebido (1–5)<input name="perceived_stress" type="number" min="1" max="5" step="1" inputmode="numeric"></label>
+        <label>Qualidade do sono (1–5)<input name="sleep_quality" type="number" min="1" max="5" step="1" inputmode="numeric"></label>
+        <label>Seguiu a recomendação de ontem?<select name="adherence"><option value="">não informar</option><option value="sim">Sim</option><option value="parcial">Em parte</option><option value="nao">Não</option></select></label>
         <label>Cafeína hoje (mg)<input name="caffeine_mg" type="number" min="0" max="1500" inputmode="numeric"></label>
         <label>Último café (hora)<input name="caffeine_last_time" type="time"></label>
         <label>Álcool (doses)<input name="alcohol_units" type="number" min="0" max="30" inputmode="numeric"></label>
         <label>Água (ml)<input name="water_ml" type="number" min="0" max="10000" step="50" inputmode="numeric"></label>
         <label class="full">Sintomas ou observações<input name="symptoms" maxlength="300" placeholder="opcional"></label>
+        <fieldset class="full tri"><legend>Sintomas de hoje</legend>
+          ${SYMS.map((x) => `<label class="opt"><input type="checkbox" data-sym="${esc(x.chave)}" data-urg="${x.urgente ? 1 : 0}"><span>${esc(x.texto)}${x.urgente ? " (alerta)" : ""}</span></label>`).join("")}
+          <label class="opt"><input type="checkbox" id="sym-none"><span>Não tenho nenhum destes sintomas hoje</span></label>
+          <p class="small muted">Sem marcar nada, a triagem do dia fica como não respondida (e o sistema não sugere aumento de carga nem HIIT).</p>
+          <div id="urgent-warn" class="card alert urgent" role="alert" hidden><h3>Procure atendimento</h3><p>${esc(URGENT_TXT)}</p></div></fieldset>
         <button class="primary full" type="submit">Salvar check-in</button></form>
         <p class="small muted">Sua percepção entra na decisão do treino junto com os indicadores do relógio.</p></div>
       ${h.proximas_acoes.length ? `<h2>Próximas ações</h2><div class="card"><ul>${h.proximas_acoes.map((a) => `<li>${esc(a)}</li>`).join("")}</ul></div>` : ""}
       ${h.objetivos.length ? `<h2>Objetivos</h2><div class="card">${h.objetivos.map(goalRow).join("")}</div>` : ""}`;
     const ck = await api("/api/checkin");
-    Object.entries(ck).forEach(([k, v]) => { const el = $(`#checkin [name=${k}]`); if (el && v != null) el.value = v; });
-    onSubmit("#checkin", async (d) => { await post("/api/checkin", d); toast("Check-in salvo"); render(); });
+    Object.entries(ck).forEach(([k, v]) => { const el = $(`#checkin [name=${k}]`); if (el && v != null && k !== "adherence") el.value = v; });
+    if (ck.adherence != null) $("#checkin [name=adherence]").value = ck.adherence >= 1 ? "sim" : ck.adherence > 0 ? "parcial" : "nao";
+    const syms = $$("#checkin [data-sym]"), none = $("#sym-none"), warn = $("#urgent-warn");
+    const updWarn = () => { warn.hidden = !syms.some((c) => c.checked && c.dataset.urg === "1"); };   // local: não depende do servidor
+    try { const tri = ck.triagem ? JSON.parse(ck.triagem) : null;
+      if (tri) { syms.forEach((c) => { c.checked = tri[c.dataset.sym] === true; }); none.checked = !syms.some((c) => c.checked); } } catch (_) {}
+    syms.forEach((c) => c.addEventListener("change", () => { if (c.checked) none.checked = false; updWarn(); }));
+    none.addEventListener("change", () => { if (none.checked) syms.forEach((c) => { c.checked = false; }); updWarn(); });
+    updWarn();
+    onSubmit("#checkin", async (d) => {
+      const marked = syms.some((c) => c.checked);
+      if (marked || none.checked) d.triagem = Object.fromEntries(syms.map((c) => [c.dataset.sym, c.checked]));
+      const r = await post("/api/checkin", d);
+      if (r.urgente) { warn.hidden = false; toast("Sintoma de alerta: procure atendimento (SAMU 192)"); }
+      else { toast("Check-in salvo"); render(); } });
     onSubmit("#quick-meal", async (d) => { const r = await post("/api/refeicoes", d); toast(`Registrado: ${nf(r.total.kcal)} kcal` + (r.nao_encontrados.length ? ` (não reconhecido: ${r.nao_encontrados.join(", ")})` : "")); render(); });
     $$("[data-ack]").forEach((b) => (b.onclick = async () => { await post(`/api/alerts/${b.dataset.ack}/ack`); render(); }));
     $$("[data-exp]").forEach((b) => (b.onclick = async () => { await post(`/api/experimentos/${b.dataset.exp}/dia`, { seguiu: b.dataset.ok === "1" }); render(); }));
@@ -209,7 +255,7 @@
 
   // ---------------------------------------------------------------- TREINO
   async function vTreino() {
-    const t = await api("/api/treino");
+    const [t, cal] = await Promise.all([api("/api/treino"), api("/api/calibracao")]);
     $("#subtitle").textContent = t.ativo ? `Plano ativo · ${t.ativo.dias_forca}×/semana` : "Sem plano ativo";
     const h = t.hoje, p = h.prontidao;
     const exHtml = (e, logging) => `<div class="ex"><h4>${esc(e.exercicio)}</h4>
@@ -232,7 +278,10 @@
        <p class="small"><strong>Séries semanais por grupo:</strong> ${Object.entries(pl.series_semanais_por_grupo).map(([g, n]) => `${esc(g)} ${n}`).join(", ")}</p>
        ${pl.observacoes.map((o) => `<p class="notice">${esc(o)}</p>`).join("")}`;
     view.innerHTML = `
-      ${t.faltam.length ? `<div class="notice">Para gerar um plano, complete o perfil: ${esc(t.faltam.join(", "))}. <button class="link" data-go="config">Abrir perfil</button></div>` : ""}
+      ${p.urgente ? `<div class="card alert urgent" role="alert"><h3>Procure atendimento</h3><p>${esc(URGENT_TXT)}</p></div>` : ""}
+      ${calibCard(cal)}
+      ${t.bloqueio ? blockCard("Plano de treino suspenso", t.bloqueio, t.faltam) : ""}
+      ${t.faltam.length && !t.bloqueio ? `<div class="notice">Para gerar um plano, complete o perfil: ${esc(t.faltam.join(", "))}. <button class="link" data-go="config">Abrir perfil</button></div>` : ""}
       ${t.proposto ? `<div class="card alert"><h3>Plano proposto aguardando sua confirmação</h3><p class="small muted">Motivo: ${esc(t.proposto.motivo || "")}</p>${planHtml(t.proposto)}
         <button class="primary" id="confirm-plan" data-id="${t.proposto.id}">Confirmar e ativar este plano</button></div>` : ""}
       <h2>Hoje</h2><div class="card"><h3 class="sec">${esc(h.titulo)}</h3>
@@ -247,7 +296,7 @@
         <label class="full">Segui a recomendação de hoje? <select name="seguiu"><option value="">não informar</option><option value="1">Sim</option><option value="0">Não</option></select></label>
         <button class="primary full" type="submit">Salvar sessão</button></form></div>
       ${t.ativo ? `<h2>Plano ativo</h2><div class="card">${planHtml(t.ativo)}</div>` : ""}
-      <div class="card"><button class="secondary" id="propose-plan" ${t.faltam.length ? "disabled" : ""}>${t.ativo ? "Gerar nova proposta de plano" : "Gerar proposta de plano"}</button>
+      <div class="card"><button class="secondary" id="propose-plan" ${t.faltam.length || t.bloqueio ? "disabled" : ""}>${t.ativo ? "Gerar nova proposta de plano" : "Gerar proposta de plano"}</button>
         <p class="small muted">Qualquer mudança de plano só vale depois que você confirmar.</p></div>
       <h2>Zonas de frequência cardíaca</h2><div class="card">${t.zonas.disponivel ? `<div class="tbl"><table><thead><tr><th>Zona</th><th>Faixa</th><th>Uso</th></tr></thead><tbody>${t.zonas.zonas.map((z) => `<tr><td>${z.zona}</td><td>${z.de}–${z.ate} bpm</td><td>${esc(z.uso)}</td></tr>`).join("")}</tbody></table></div>
         ${t.zonas.aviso ? `<p class="notice">${esc(t.zonas.aviso)}</p>` : ""}<p class="small muted">FC máx. ${t.zonas.fc_max} bpm (${esc(t.zonas.origem)}); repouso ${t.zonas.fc_repouso} bpm; ${esc(t.zonas.metodo)}.</p>` : `<p class="muted">Informe a data de nascimento no perfil.</p>`}</div>
@@ -277,11 +326,11 @@
     const tgt = (t) => `<div class="row"><span>Calorias</span><span class="r">${nf(t.kcal)} kcal</span></div>
       <div class="row"><span>Proteína<small>${t.proteina_faixa_g_kg[0]}–${t.proteina_faixa_g_kg[1]} g/kg na literatura</small></span><span class="r">${t.proteina_g} g</span></div>
       <div class="row"><span>Carboidrato</span><span class="r">${t.carboidrato_g} g</span></div><div class="row"><span>Gordura</span><span class="r">${t.gordura_g} g</span></div>
-      <div class="row"><span>Fibra</span><span class="r">${t.fibra_g} g</span></div><div class="row"><span>Água (referência geral)</span><span class="r">${nf(t.agua_ml)} ml</span></div>
+      <div class="row"><span>Fibra</span><span class="r">${t.fibra_g == null ? "sem meta (evidência não verificada)" : t.fibra_g + " g"}</span></div><div class="row"><span>Água (referência geral)</span><span class="r">${t.agua_ml == null ? "sem meta (evidência não verificada)" : nf(t.agua_ml) + " ml"}</span></div>
       <p class="small">${esc(t.por_refeicao.texto)}. Balanço: ${t.balanco_kcal > 0 ? "+" : ""}${nf(t.balanco_kcal)} kcal sobre um gasto estimado de ${nf(t.tdee.kcal)} kcal (${nf(t.tdee.intervalo[0])}–${nf(t.tdee.intervalo[1])}).</p>
       ${t.observacoes.map((o) => `<p class="notice">${esc(o)}</p>`).join("")}<p class="small muted">${esc(t.limitacoes)}</p>`;
     view.innerHTML = `
-      ${rev.estado === "indisponivel" ? `<div class="notice">Para calcular metas, complete: ${esc((c.faltam || []).join(", "))}. <button class="link" data-go="config">Abrir perfil</button></div>` : ""}
+      ${rev.estado === "indisponivel" ? blockCard("Meta nutricional indisponível", c.bloqueio || (c.faltam && c.faltam.length ? "Faltam informações para calcular a meta." : "Metas não calculadas no momento."), [...(c.faltam || []), ...(c.evidencia_pendente || [])]) : ""}
       ${rev.estado === "proposta" ? `<div class="card alert"><h3>Proposta de meta aguardando confirmação</h3><p class="small">${esc(rev.motivo)}</p>${tgt(c)}
         <button class="primary" id="confirm-meta">Confirmar esta meta</button></div>` : ""}
       ${s.meta && rev.estado !== "proposta" ? `<h2>Meta em vigor</h2><div class="card">${tgt(s.meta)}${chip(s.meta.confianca, CONF[s.meta.confianca])}</div>` : ""}
@@ -318,7 +367,8 @@
     const items = [["metabolismo", "Metabolismo", "TMB, gasto diário e incerteza"], ["composicao", "Composição corporal", "Peso, gordura e tendência"],
       ["suplementos", "Suplementação", "Avaliação por evidência"], ["exames", "Exames laboratoriais", "Registro e tendências"],
       ["evolucao", "Evolução", "Objetivos, períodos e experimentos"], ["recomendacoes", "Recomendações", "Plano do dia e histórico"],
-      ["relatorios", "Relatórios", "Diário, noturno, semanal, mensal"], ["config", "Configurações", "Perfil, notificações, sistema"]];
+      ["relatorios", "Relatórios", "Diário, noturno, semanal, mensal"], ["garmin", "Conferência Garmin", "Compare com o app Garmin Connect"],
+      ["config", "Configurações", "Perfil, triagem, backup, sistema"]];
     view.innerHTML = `<div class="menu">${items.map(([k, t, d]) => `<button data-go="${k}"><b>${t}</b><small>${d}</small></button>`).join("")}</div>
       <p class="small muted" style="margin-top:16px">${esc(META.aviso)}</p>`;
     wireNav();
@@ -369,13 +419,13 @@
     onSubmit("#weight", async (d) => { await post("/api/peso", d); toast("Medida salva"); render(); });
   }
 
-  const SUP = { potencialmente_relevante: "Potencialmente relevante", desnecessario: "Desnecessário", inadequado: "Inadequado para você", requer_avaliacao: "Requer avaliação profissional", dados_insuficientes: "Dados insuficientes" };
+  const SUP = { potencialmente_relevante: "Potencialmente relevante", desnecessario: "Desnecessário", inadequado: "Inadequado para você", requer_avaliacao: "Requer avaliação profissional", dados_insuficientes: "Dados insuficientes", evidencia_nao_verificada: "Evidência não verificada" };
   async function vSuplementos() {
     const s = await api("/api/suplementos");
     $("#subtitle").textContent = "Avaliação informativa por evidência";
-    if (!s.disponivel) { view.innerHTML = `<div class="card"><p>${esc(s.texto)}</p><button class="primary" data-go="config">Preencher perfil de saúde</button></div>`; wireNav(); return; }
+    if (!s.disponivel) { view.innerHTML = blockCard("Avaliação de suplementos indisponível", s.texto, s.faltam); wireNav(); return; }
     view.innerHTML = `<div class="notice">${esc(s.aviso)}</div>` + s.itens.map((i) => `<div class="card"><h3 class="sec">${esc(i.nome)}</h3>
-      <p>${chip(i.status, SUP[i.status])} ${chip("", "Evidência " + i.evidencia)}</p><p>${esc(i.justificativa)}</p>
+      <p>${chip(i.status, SUP[i.status] || i.status)} ${chip("", "Evidência " + i.evidencia)}</p><p>${esc(i.justificativa)}</p>
       ${i.contraindicacoes_aplicaveis.map((c) => `<p class="notice"><strong>Contraindicação:</strong> ${esc(c)}</p>`).join("")}${i.interacoes_aplicaveis.map((c) => `<p class="notice"><strong>Interação:</strong> ${esc(c)}</p>`).join("")}
       <details><summary>Ficha completa</summary><div class="inner"><p><strong>Finalidade:</strong> ${esc(i.finalidade)}</p><p><strong>População estudada:</strong> ${esc(i.populacao)}</p>
         <p><strong>Benefícios esperados:</strong> ${esc(i.beneficios)}</p><p><strong>Doses estudadas na literatura:</strong> ${esc(i.dose)}</p><p><strong>Horário:</strong> ${esc(i.horario)}</p>
@@ -458,10 +508,18 @@
   }
 
   async function vConfig() {
-    const [p, s, st, kbi] = await Promise.all([api("/api/perfil"), api("/api/sistema"), api("/api/status"), api("/api/kb")]);
+    const [p, s, st, kbi, tri, bk, evs] = await Promise.all([api("/api/perfil"), api("/api/sistema"), api("/api/status"), api("/api/kb"),
+      api("/api/seguranca/triagem"), api("/api/backup/status"), api("/api/evidencias/resumo")]);
     $("#subtitle").textContent = "Perfil, notificações e sistema";
     const v = p.perfil, opt = (o, cur) => Object.entries(o).map(([k, l]) => `<option value="${k}" ${cur === k ? "selected" : ""}>${esc(l)}</option>`).join("");
     const lst = (k) => v[k] == null ? "" : v[k].length ? esc(v[k].join(", ")) : "nenhuma";
+    const LIMLBL = { ombro: "Ombro", joelho: "Joelho", lombar: "Lombar", punho: "Punho ou mão", quadril: "Quadril ou virilha" };
+    const lim = Array.isArray(v.limitacoes) ? v.limitacoes : null;
+    const triRows = tri.perguntas.map((q) => `<div class="yn" role="radiogroup" aria-label="${esc(q.texto)}"><p>${esc(q.texto)}</p>
+      <label class="opt"><input type="radio" name="${esc(q.chave)}" value="sim" required ${q.resposta === true ? "checked" : ""}><span>Sim</span></label>
+      <label class="opt"><input type="radio" name="${esc(q.chave)}" value="nao" required ${q.resposta === false ? "checked" : ""}><span>Não</span></label></div>`).join("");
+    const fmtH = (h) => h == null ? "—" : h < 48 ? `${nf(h, 1)} h` : `${nf(h / 24, 1)} dias`;
+    const ext = bk.externo, loc = bk.local;
     const key = s.chave, missing = [...new Set(Object.values(p.faltam).flat())];
     view.innerHTML = `${missing.length ? `<div class="notice">Faltam para liberar todos os módulos: ${esc(missing.join(", "))}.</div>` : ""}
       <h2>Perfil</h2><div class="card"><form class="f two" id="profile">
@@ -476,17 +534,35 @@
         <label class="full">Equipamento<select name="equipamento"><option value=""></option>${opt(p.equipamentos, v.equipamento)}</select></label>
         <label>Refeições por dia<input name="refeicoes_dia" type="number" min="2" max="8" value="${v.refeicoes_dia ?? ""}" inputmode="numeric"></label>
         <label>Cafeína habitual (mg/dia)<input name="cafeina_habitual_mg" type="number" min="0" max="1500" value="${v.cafeina_habitual_mg ?? ""}" inputmode="numeric"></label>
-        <label class="full">Lesões ou limitações (ombro, joelho, lombar, punho; ou "nenhuma")<input name="limitacoes" value="${lst("limitacoes")}"></label>
+        <fieldset class="full tri"><legend>Lesões ou limitações físicas</legend>
+          ${tri.limitacoes_opcoes.map((k) => `<label class="opt"><input type="checkbox" data-lim="${esc(k)}" ${lim && lim.includes(k) ? "checked" : ""}><span>${esc(LIMLBL[k] || k)}</span></label>`).join("")}
+          <label class="opt"><input type="checkbox" id="lim-none" ${lim && lim.length === 0 ? "checked" : ""}><span>Nenhuma limitação</span></label>
+          <p class="small muted">Sem marcar nada, a informação fica como não respondida. Outras situações (ex.: pós-operatório) entram na triagem abaixo.</p></fieldset>
         <label class="full">Condições de saúde diagnosticadas (ou "nenhuma")<input name="condicoes_saude" value="${lst("condicoes_saude")}"></label>
         <label class="full">Medicamentos em uso (ou "nenhum")<input name="medicamentos" value="${lst("medicamentos")}"></label>
         <label class="full">Restrições alimentares (ou "nenhuma")<input name="restricoes_alimentares" value="${lst("restricoes_alimentares")}"></label>
         <label class="full">Liberação médica para exercício intenso<select name="liberacao_medica">${opt({ nao: "Não / não sei", sim: "Sim" }, v.liberacao_medica ? "sim" : "nao")}</select></label>
-        <label class="full">Está grávida ou amamentando? (obrigatório para mulheres)<select name="gestante_ou_lactante"><option value=""></option>${opt({ nao: "Não", sim: "Sim" }, v.gestante_ou_lactante == null ? "" : v.gestante_ou_lactante ? "sim" : "nao")}</select></label>
+        <fieldset class="full tri"><legend>Triagem de saúde (obrigatória)</legend>
+          ${tri.faltam.some((k) => tri.perguntas.some((q) => q.chave === k)) ? `<p class="notice">Responda Sim ou Não a todas as perguntas. Pergunta sem resposta não conta como "Não": o treino, as metas e os suplementos personalizados continuam suspensos.</p>` : ""}
+          ${triRows}</fieldset>
         <button class="primary full" type="submit">Salvar perfil</button></form>
         <p class="small muted">Esses dados ficam só no seu servidor e alimentam as estimativas e os limites de segurança.</p></div>
       <h2>Notificações no iPhone</h2><div class="card"><p class="small">Requer o app adicionado à Tela de Início (iOS 16.4 ou mais recente) e acesso por HTTPS. As mensagens são genéricas, sem dados de saúde.</p>
         <div class="hstack"><button class="primary" id="push-on">Ativar neste aparelho</button><button class="secondary" id="push-test">Enviar teste</button></div>
         <p class="small muted">Aparelhos inscritos: ${s.push_inscritos}. Canais ativos no servidor: ${esc(st.notificacoes.join(", ") || "nenhum")}.</p></div>
+      <h2>Backup externo</h2><div class="card">
+        <div class="row"><span>Envio externo</span><span class="r">${ext.configurado ? (ext.alerta ? chip("erro", "atenção") : chip("ok", "ativo")) : chip("media", "não configurado")}</span></div>
+        <div class="row"><span>Último envio bem-sucedido</span><span class="r">${ext.ultimo_envio_ok ? dtBR(ext.ultimo_envio_ok) : "nunca"}</span></div>
+        <div class="row"><span>Tempo desde o último envio</span><span class="r">${fmtH(ext.idade_horas)}</span></div>
+        <div class="row"><span>Falhas seguidas</span><span class="r">${ext.falhas_consecutivas}</span></div>
+        ${ext.atrasado ? `<p class="notice">Envio atrasado: o último backup externo tem mais de 36 horas ou nunca foi enviado.</p>` : ""}
+        ${ext.pendente ? `<p class="notice">O backup local mais recente ainda não foi enviado.</p>` : ""}
+        ${ext.ultimo_erro ? `<p class="notice">Último erro${ext.ultimo_erro.quando ? " (" + dtBR(ext.ultimo_erro.quando) + ")" : ""}: ${esc(ext.ultimo_erro.mensagem)}</p>` : ""}
+        <div class="row"><span>Último backup local</span><span class="r">${loc.existe ? esc(loc.criado_utc ? dtBR(loc.criado_utc) : loc.arquivo) : "nenhum"}</span></div>
+        ${loc.existe ? `<p class="small muted">Formato ${esc(loc.formato)} · ${nf(loc.tamanho_bytes / 1024)} KB${loc.linhas_daily_metrics != null ? ` · ${loc.linhas_daily_metrics} dias de métricas` : ""}.</p>` : ""}
+        ${loc.erro ? `<p class="notice">${esc(loc.erro)}</p>` : ""}
+        ${loc.existe ? `<a class="secondary tap" id="bk-dl" href="/api/backup/baixar" download>Baixar backup cifrado</a>` : ""}
+        <p class="small muted">Guarde uma cópia no app Arquivos/iCloud uma vez por semana. Ela só abre com a sua chave de recuperação.</p></div>
       <h2>Fonte de dados e sistema</h2><div class="card">
         <div class="row"><span>Integração Garmin</span><span class="r">${s.fonte === "oficial" ? "API oficial (Personal API)" : "não oficial"}</span></div>
         <div class="row"><span>Validação com dados reais</span><span class="r">${s.dados_reais_validados ? "validada em " + dtBR(s.dados_reais_validados) : chip("media", "ainda não validada")}</span></div>
@@ -494,15 +570,21 @@
         <div class="row"><span>Qualidade dos dados (14 dias)</span><span class="r">${s.qualidade.pontuacao}/100 · ${esc(s.qualidade.nivel)}</span></div>
         <div class="row"><span>Tarefas com falha (7 dias)</span><span class="r">${s.falhas_7d}</span></div>
         <div class="row"><span>IA generativa</span><span class="r">${esc({ regras: "desligada (regras e estatística)", local: "modelo local", nuvem: "nuvem" }[s.ia_modo] || s.ia_modo)}</span></div>
-        <div class="row"><span>Base científica</span><span class="r">${kbi.total} referências · ${kbi.verificadas} conferidas</span></div>
+        <div class="row"><span>Base científica</span><span class="r">${evs.total} referências</span></div>
+        <div class="row wrap"><span>Verificação das referências<small>${esc(evs.aviso)}</small></span><span class="r">${evs.por_classe.verificada} verificadas · ${evs.por_classe.parcialmente_verificada} parciais · ${evs.por_classe.nao_verificada} não verificadas · ${evs.por_classe.inadequada} inadequadas</span></div>
         <p class="small muted">Fora da API oficial: ${esc(s.nao_disponiveis_na_api_oficial.join("; "))}.${s.qualidade.nao_fornecidos.length ? " Não fornecidos nos últimos 90 dias: " + esc(s.qualidade.nao_fornecidos.join(", ")) + "." : ""}</p>
         <details><summary>Histórico de execuções</summary><div class="inner">${s.execucoes.map((e) => `<div class="row"><span>${esc(e.job)}<small>${dtBR(e.started_at)}${e.status !== "ok" ? " · " + esc(e.detail || "") : ""}</small></span><span class="r">${chip(e.status === "ok" ? "ok" : "erro", e.status)}</span></div>`).join("") || "Sem execuções registradas."}</div></details>
         <details><summary>Indicadores fornecidos pelo dispositivo (30 dias)</summary><div class="inner">${Object.values(st.disponibilidade).map((r) => `<div class="row"><span>${esc(r.rotulo)}</span><span class="r">${esc(r.status)} · ${r.dias_com_dado}/${r.dias}</span></div>`).join("")}</div></details></div>
       <button id="btn-logout" class="secondary">Sair</button><p class="small muted">${esc(META.aviso)}</p>`;
+    const limBoxes = $$("#profile [data-lim]"), limNone = $("#lim-none");
+    limBoxes.forEach((c) => c.addEventListener("change", () => { if (c.checked) limNone.checked = false; }));
+    limNone.addEventListener("change", () => { if (limNone.checked) limBoxes.forEach((c) => { c.checked = false; }); });
     onSubmit("#profile", async (d) => { d.liberacao_medica = d.liberacao_medica === "sim";
-      d.gestante_ou_lactante = d.gestante_ou_lactante === "" ? null : d.gestante_ou_lactante === "sim";
+      tri.perguntas.forEach((q) => { d[q.chave] = d[q.chave] === "sim" ? true : d[q.chave] === "nao" ? false : null; });
+      const chosen = limBoxes.filter((c) => c.checked).map((c) => c.dataset.lim);
+      d.limitacoes = chosen.length ? chosen : limNone.checked ? [] : null;   // vazio sem "nenhuma" = não informado
       // em branco = não informado (o módulo continua pedindo); "nenhum(a)" = lista vazia declarada
-      ["limitacoes", "condicoes_saude", "medicamentos", "restricoes_alimentares"].forEach((k) => { const t = d[k].trim();
+      ["condicoes_saude", "medicamentos", "restricoes_alimentares"].forEach((k) => { const t = d[k].trim();
         d[k] = t === "" ? null : /^nenhum/i.test(t) ? [] : t.split(",").map((x) => x.trim()).filter(Boolean); });
       Object.keys(d).forEach((k) => { if (d[k] === "") d[k] = null; });
       await post("/api/perfil", d); toast("Perfil salvo"); render(); });
@@ -520,8 +602,26 @@
     };
   }
 
+  async function vGarmin() {
+    $("#subtitle").textContent = "Compare com o app Garmin Connect";
+    const g = await api(`/api/garmin/conferencia${state.gday ? "?dia=" + encodeURIComponent(state.gday) : ""}`);
+    state.gday = g.dia;
+    const SIT = { confere: ["ok", "Igual"], diverge: ["erro", "Diferente"] };
+    view.innerHTML = `<div class="notice">Abra o app Garmin Connect, na data abaixo, e compare cada valor. ${esc(g.onde_ver_no_app)}</div>
+      <div class="card"><label class="select">Dia<input id="g-day" type="date" value="${esc(g.dia)}" max="${todayISO()}"></label>
+      ${g.itens.map((i) => `<div class="row conf"><span>${esc(i.rotulo)}<small>${i.valor == null ? "sem valor no sistema" : "no sistema: " + esc(i.valor)}</small>
+        ${SIT[i.situacao] ? chip(...SIT[i.situacao]) : ""}</span>
+        <span class="r hstack"><button class="secondary tap" data-k="${esc(i.chave)}" data-ok="1" aria-label="${esc(i.rotulo)}: igual ao app">Igual</button>
+        <button class="secondary tap" data-k="${esc(i.chave)}" data-ok="0" aria-label="${esc(i.rotulo)}: diferente do app">Diferente</button></span></div>`).join("")}
+      <p class="small muted">${esc(g.nota)}</p></div>`;
+    $("#g-day").onchange = (e) => { if (e.target.value) { state.gday = e.target.value; render(); } };
+    $$("[data-k]", view).forEach((b) => (b.onclick = async () => { b.disabled = true;
+      try { await post("/api/garmin/conferencia", { chave: b.dataset.k, ok: b.dataset.ok === "1", dia: g.dia }); toast("Conferência registrada"); render(); }
+      catch (e) { toast("Não foi possível registrar: " + e.message); b.disabled = false; } }));
+  }
+
   const VIEWS = { hoje: vHoje, saude: vSaude, treino: vTreino, nutricao: vNutricao, mais: vMais, metabolismo: vMetabolismo, composicao: vComposicao,
-    suplementos: vSuplementos, exames: vExames, evolucao: vEvolucao, recomendacoes: vRecomendacoes, relatorios: vRelatorios, config: vConfig };
+    suplementos: vSuplementos, garmin: vGarmin, exames: vExames, evolucao: vEvolucao, recomendacoes: vRecomendacoes, relatorios: vRelatorios, config: vConfig };
 
   $("#btn-sync").onclick = async () => {
     const b = $("#btn-sync"); b.classList.add("spin");

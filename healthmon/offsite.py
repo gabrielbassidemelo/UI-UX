@@ -140,6 +140,18 @@ def upload(cfg: Config, path: Path, *, par_url: str | None = None, tentativas: i
     return name
 
 
+NAME_RE = re.compile(r"^healthmon-(\d{8})-(\d{6})\.hmbk$")
+MAX_DOWNLOAD = 512 * 1024 * 1024
+
+
+def _safe_name(name: str, prefix: str) -> str:
+    """Só aceita <prefixo>healthmon-AAAAMMDD-HHMMSS.hmbk; nada de barras extras, '..' ou outros nomes."""
+    base = name[len(prefix):] if prefix and name.startswith(prefix) else name
+    if not NAME_RE.match(base) or name != prefix + base:
+        raise OffsiteError("nome de objeto remoto fora do padrão esperado; ignorado por segurança")
+    return base
+
+
 def list_remote(cfg: Config, *, par_url: str | None = None, tentativas: int = 4, espera_base: float = 2.0,
                 _inseguro_para_testes: bool = False) -> list[dict]:
     """Lista objetos (exige PAR com listagem habilitada). Segue `nextStartWith` (ListObjects)."""
@@ -168,21 +180,29 @@ def download(cfg: Config, name: str, dest: Path, *, par_url: str | None = None, 
              espera_base: float = 2.0, _inseguro_para_testes: bool = False) -> Path:
     """GET do objeto para `dest` (gravação atômica, permissão 600)."""
     base = _base_url(cfg, par_url, _inseguro_para_testes)
+    _safe_name(name, _prefix(cfg))
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    r = _request("GET", base + quote(name), stream=True, tentativas=tentativas, espera_base=espera_base)
+    r = _request("GET", base + quote(name, safe="/"), stream=True, tentativas=tentativas, espera_base=espera_base)
     fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=".dl-")
+    done = False
     try:
+        got = 0
         with os.fdopen(fd, "wb") as f:
             for chunk in r.iter_content(1 << 20):
+                got += len(chunk)
+                if got > MAX_DOWNLOAD:
+                    raise OffsiteError("objeto remoto maior que o limite aceito; download interrompido")
                 f.write(chunk)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, dest)
+        done = True
     except requests.RequestException as e:
-        Path(tmp).unlink(missing_ok=True)
         raise OffsiteError(f"falha de rede no download ({type(e).__name__})") from None
     finally:
         r.close()
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, dest)
+        if not done:
+            Path(tmp).unlink(missing_ok=True)
     return dest
 
 
@@ -196,13 +216,32 @@ def verify_remote(cfg: Config, path: Path, *, par_url: str | None = None, tentat
         return _sha256_file(got) == _sha256_file(path)
 
 
+def list_backups(cfg: Config, **kw) -> list[dict]:
+    """Backups remotos com nome no padrão, do mais recente para o mais antigo. Objetos com outros nomes são ignorados."""
+    pre = _prefix(cfg)
+    out = []
+    for o in list_remote(cfg, **kw):
+        try:
+            base = _safe_name(o["name"], pre)
+        except OffsiteError:
+            continue
+        m = NAME_RE.match(base)
+        out.append({"objeto": o["name"], "arquivo": base, "tamanho": o.get("size"),
+                    "data_no_nome": f"{m.group(1)[:4]}-{m.group(1)[4:6]}-{m.group(1)[6:]} {m.group(2)[:2]}:{m.group(2)[2:4]}"})
+    return sorted(out, key=lambda x: x["arquivo"], reverse=True)
+
+
+def download_backup(cfg: Config, objeto: str, dest_dir: Path, **kw) -> Path:
+    return download(cfg, objeto, Path(dest_dir) / objeto.rsplit("/", 1)[-1], **kw)
+
+
 def download_latest(cfg: Config, dest_dir: Path, **kw) -> Path:
-    """Baixa o backup remoto mais recente (por nome/data) para dest_dir."""
-    nomes = [o["name"] for o in list_remote(cfg, **kw) if o["name"].endswith(".hmbk")]
-    if not nomes:
+    """Baixa o backup remoto mais recente (por nome/data) para dest_dir. Quem restaura deve conferir o cabeçalho
+    (data de criação e destinatário) antes de confiar: ver `healthmon restaurar --remoto`."""
+    itens = list_backups(cfg, **kw)
+    if not itens:
         raise OffsiteError("nenhum backup encontrado no armazenamento externo")
-    nome = max(nomes, key=lambda n: n.rsplit("/", 1)[-1])
-    return download(cfg, nome, Path(dest_dir) / nome.rsplit("/", 1)[-1], **kw)
+    return download_backup(cfg, itens[0]["objeto"], dest_dir, **kw)
 
 
 # --- estado e monitoramento ------------------------------------------------------------

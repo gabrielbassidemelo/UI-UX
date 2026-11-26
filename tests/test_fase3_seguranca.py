@@ -245,13 +245,42 @@ def test_structured_triage_overrides_good_wearable_numbers(cfg, db):
 # ------------------------------------------------------------ a IA não sobrescreve as regras
 @pytest.mark.parametrize("text", ["Você provavelmente tem hipotireoidismo.", "Reduza a dose da sua insulina hoje.",
                                   "Tome 400 mg de cafeína antes do treino.", "Hoje é dia de HIIT até a falha!",
-                                  "Faça jejum de 24 horas.", "Suspenda o anticoagulante por uns dias."])
+                                  "Faça jejum de 24 horas.", "Suspenda o anticoagulante por uns dias.",
+                                  # contornos encontrados na auditoria de segurança (sinônimos, números por extenso, unicode)
+                                  "Aumente sua dosagem de levotiroxina.", "Pare de tomar o remédio de pressão.",
+                                  "Corte o betabloqueador.", "Tome cinquenta miligramas.", "Tome mil unidades de vitamina D.",
+                                  "Tome dois comprimidos de ibuprofeno.", "Você pode ter hipotireoidismo.",
+                                  "Isso indica diabetes tipo 2.", "Seus dados sugerem apneia do sono.",
+                                  "di\u200bagnóstico: arritmia", "Faça \uff28\uff29\uff29\uff34", "Faça H I I T hoje",
+                                  "Faça j\u0435jum", "Fique 16 horas sem comer.", "Coma só oitocentas calorias.",
+                                  "Treine até a exaustão.", "\u0422reine forte"])
 def test_llm_output_with_diagnosis_dose_or_medication_change_is_rejected(text):
     assert safety.llm_text_allowed(text)[0] is False
 
 
+@pytest.mark.parametrize("text", ["Seu sono ficou dentro do seu padrão; mantenha a rotina e o horário de dormir.",
+                                  "HRV um pouco abaixo da sua mediana nos últimos dias; priorize descanso e hidratação.",
+                                  "Passos acima do habitual e estresse dentro da sua faixa usual."])
+def test_llm_plain_descriptive_text_is_allowed(text):
+    assert safety.llm_text_allowed(text)[0] is True
+
+
+def test_daily_report_passes_readiness_to_the_llm_gate(cfg, db):
+    from healthmon import reports
+    populate(db, 40, END, stress_last=0)
+    person(db)
+    db.insert("checkins", {"date": END.isoformat(), "symptoms": "dor no peito"}, upsert_on="date")
+    reports.PREVIEW_ONLY = True
+    try:
+        facts = reports.daily(cfg, db, END).facts
+    finally:
+        reports.PREVIEW_ONLY = False
+    assert facts["prontidao"]["nivel"] == "parar"          # com isso a IA nem é chamada (llm.narrate)
+
+
 def test_llm_cannot_encourage_training_on_a_stop_day():
     assert safety.llm_text_allowed("Aproveite e faça uma corrida leve.", "parar")[0] is False
+    assert safety.llm_text_allowed("Que tal correr 10 km, não perca!", "recuperacao")[0] is False
     assert safety.llm_text_allowed("Hoje o melhor é descansar e não treinar.", "parar")[0] is True
 
 

@@ -100,7 +100,8 @@ def dispatch_alerts(cfg: Config, db: Database, now: datetime | None = None) -> i
     sent_count = 0
     full = cfg.get("notificacoes", "nivel_conteudo", "minimo") == "completo"
     for a in db.pending_alerts():
-        is_sync = a["kind"] == "falha_sincronizacao" or a["kind"].startswith("chave_garmin")
+        is_sync = (a["kind"] == "falha_sincronizacao" or a["kind"].startswith("chave_garmin")
+                   or a["kind"] in ("falha_backup", "falha_backup_externo", "backup_externo_ausente"))   # operacionais: sem limite diário
         if not is_sync and db.count_notified_since(since) >= limit:
             break
         body = a["message"] if (full or is_sync) else "Há um novo alerta no dashboard."

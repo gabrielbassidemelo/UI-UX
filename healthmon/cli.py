@@ -61,6 +61,12 @@ def main(argv: list[str] | None = None) -> int:
     ck.add_argument("--forcar", action="store_true", help="substitui a chave pública existente (backups antigos seguem exigindo a chave antiga)")
     be = sub.add_parser("backup-externo", help="envia o último backup para a cópia externa, ou mostra o estado")
     be.add_argument("--status", action="store_true")
+    be.add_argument("--contar", action="store_true", help="imprime quantos backups existem na cópia externa")
+    sub.add_parser("trocar-chave-garmin", help="troca a chave pessoal da Garmin (digitação oculta) e a data de expiração")
+    ds = sub.add_parser("definir-segredo", help="grava um segredo em secrets.env com digitação oculta (ex.: OCI_PAR_URL)")
+    ds.add_argument("nome")
+    dc = sub.add_parser("definir-config", help="ajusta um valor não secreto do config.toml (uso do script de instalação)")
+    dc.add_argument("secao"); dc.add_argument("chave"); dc.add_argument("valor")
     vb = sub.add_parser("verificar-backup", help="confere a integridade de um backup (o mais recente, se omitido)")
     vb.add_argument("arquivo", nargs="?")
     vb.add_argument("--com-chave", action="store_true", help="pede a chave de recuperação e decifra para conferir o banco")
@@ -209,12 +215,17 @@ def main(argv: list[str] | None = None) -> int:
             threading.Thread(target=service.catch_up, daemon=True).start()
             logging.info("Agendador iniciado: %s", ", ".join(j.id for j in sched.get_jobs()))
         app = create_app(cfg, db, sync_fn)
+        beat = cfg.home / "servico.ativo"
+        if sched:
+            beat.touch()
+            sched.add_job(beat.touch, "interval", seconds=60, id="heartbeat")     # 'restaurar' recusa com o serviço ativo
         try:
             uvicorn.run(app, host=host, port=port, server_header=False, date_header=False,
                         proxy_headers=True, forwarded_allow_ips="127.0.0.1", log_level="warning")
         finally:
             if sched:
                 sched.shutdown(wait=False)
+                beat.unlink(missing_ok=True)
         return 0
 
     if args.cmd == "backup":
@@ -226,15 +237,42 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "restaurar":
         import tempfile
         from . import backup as bkp, offsite
+        if bkp.service_active(cfg):
+            print("O serviço está em execução. Pare-o antes (docker compose stop healthmon) e repita.")
+            return 1
         if args.arquivo:
             path = Path(args.arquivo)
         else:
-            path = offsite.download_latest(cfg, Path(tempfile.mkdtemp(prefix="hm-restaurar-")))
-            print(f"Baixado da cópia externa: {path.name}")
+            itens = offsite.list_backups(cfg)
+            if not itens:
+                print("Nenhum backup encontrado na cópia externa.")
+                return 1
+            print("Backups na cópia externa (mais recente primeiro):")
+            for i, it in enumerate(itens[:15], 1):
+                print(f"  {i:2d}. {it['data_no_nome']}  {it['tamanho'] or '?'} bytes")
+            esc = input("Número do backup a restaurar [1]: ").strip() or "1"
+            if not esc.isdigit() or not 1 <= int(esc) <= min(15, len(itens)):
+                print("Escolha inválida.")
+                return 1
+            path = offsite.download_backup(cfg, itens[int(esc) - 1]["objeto"], Path(tempfile.mkdtemp(prefix="hm-restaurar-")))
         head = bkp.read_header(path)
         # A chave de recuperação só é lida do teclado: nunca por argumento, variável de ambiente ou arquivo.
         key = getpass.getpass("Chave de recuperação (HMRK-...): ").strip() if head else None
+        if head:
+            info = bkp.verify_backup(cfg, path, key)
+            print(f"Este backup foi criado em {head.get('criado_utc')} (UTC) e contém {info['dias']} dia(s) de indicadores.")
+            stamp = bkp.header_matches_name(path, head)
+            if stamp is not True:
+                print(f"ATENÇÃO: {stamp} Isso pode indicar um arquivo antigo copiado com outro nome.")
+            if info["dias"] == 0:
+                print("ATENÇÃO: este backup está VAZIO (nenhum dia de indicadores).")
+            if input("Restaurar este backup sobre o banco atual? Digite RESTAURAR: ").strip() != "RESTAURAR":
+                print("Nada foi alterado.")
+                return 1
         print(f"Banco restaurado em {bkp.restore_backup(cfg, path, key)} (cópia anterior preservada).")
+        if key and not bkp.public_key_path(cfg).exists():
+            bkp.save_public_key(cfg, bkp.public_from_private(key))      # servidor reconstruído: mesma chave de recuperação
+            print("Chave pública de backup regravada a partir da sua chave de recuperação: os próximos backups usam a mesma chave.")
         return 0
 
     if args.cmd == "chaves-recuperacao":
@@ -244,18 +282,74 @@ def main(argv: list[str] | None = None) -> int:
                   "backups antigos continuarão exigindo a chave antiga.")
             return 1
         priv, pub = bkp.generate_recovery_keypair()
-        bkp.save_public_key(cfg, pub)
         print("CHAVE DE RECUPERAÇÃO (aparece só agora; não fica gravada no servidor):\n")
         print(f"    {priv}\n")
         print("Guarde no gerenciador de senhas do iPhone (Senhas/iCloud) ou em papel. Sem ela NENHUM backup novo pode ser\n"
               "aberto, nem por você, nem pelo servidor. Não a envie por conversa, e-mail ou GitHub.")
         input("Depois de guardar, pressione Enter para limpar a tela. ")
         print("\033[2J\033[3J\033[H", end="")
-        print("Chave pública gravada. Os próximos backups usam o formato HMBK2.")
+        # Prova de que a chave foi guardada: só depois disso a chave pública passa a valer.
+        for tentativa in range(3):
+            typed = getpass.getpass("Cole a chave que você guardou, para conferir (não aparece na tela): ").strip()
+            try:
+                if bkp.public_from_private(typed) == pub:
+                    break
+            except bkp.BackupError:
+                pass
+            print("Não confere com a chave gerada.")
+        else:
+            print("A chave não foi confirmada. Nada foi gravado; rode o comando de novo para gerar outra chave.")
+            return 1
+        del priv, typed
+        bkp.save_public_key(cfg, pub)
+        print(f"Chave confirmada e chave pública gravada (impressão digital {bkp.expected_fingerprint(cfg)}).")
+        print("Os próximos backups usam o formato HMBK2 e só abrem com a sua chave de recuperação.")
+        return 0
+
+    if args.cmd == "trocar-chave-garmin":
+        from .config import set_config_value, set_secret
+        k = getpass.getpass("Nova chave pessoal da Garmin (não aparece na tela): ").strip()
+        if len(k) < 16:
+            print("Chave vazia ou curta demais. Nada foi alterado.")
+            return 1
+        exp = input("Data de expiração da nova chave (AAAA-MM-DD): ").strip()
+        try:
+            date.fromisoformat(exp)
+        except ValueError:
+            print("Data inválida. Nada foi alterado.")
+            return 1
+        set_secret(cfg.home, "GARMIN_PERSONAL_API_KEY", k)
+        set_config_value(cfg.home, "garmin", "chave_expira_em", exp)
+        del k
+        print("Chave trocada. Reinicie o serviço (docker compose restart healthmon) e rode 'healthmon validar-garmin'.")
+        return 0
+
+    if args.cmd == "definir-config":
+        from .config import set_config_value
+        if (args.secao, args.chave) not in (("dashboard", "https"), ("notificacoes", "url_dashboard"), ("garmin", "chave_expira_em")):
+            print("Ajuste não permitido por este comando; edite config.toml.")
+            return 1
+        set_config_value(cfg.home, args.secao, args.chave, args.valor)
+        return 0
+
+    if args.cmd == "definir-segredo":
+        from .config import set_secret
+        if args.nome not in ("OCI_PAR_URL", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "SMTP_PASSWORD"):
+            print("Segredo não reconhecido.")
+            return 1
+        v = getpass.getpass(f"Valor de {args.nome} (não aparece na tela): ").strip()
+        if not v:
+            print("Valor vazio. Nada foi alterado.")
+            return 1
+        set_secret(cfg.home, args.nome, v)
+        print(f"{args.nome} gravado em secrets.env.")
         return 0
 
     if args.cmd == "backup-externo":
         from . import offsite
+        if args.contar:
+            print(len(offsite.list_backups(cfg)))
+            return 0
         r = offsite.status(cfg) if args.status else offsite.sync_latest(cfg)
         print(json.dumps(r, ensure_ascii=False, indent=1))
         return 0 if args.status or r.get("status") in ("ok", "em_dia") else 1
@@ -284,10 +378,18 @@ def main(argv: list[str] | None = None) -> int:
             day = today_local(cfg)
             from .analysis import day_snapshot
             snap = day_snapshot(db, day)
-            facts = llm.strip_identifiers({"dia": day.isoformat(), "recuperacao": snap["recuperacao"],
-                                           "avaliacoes": snap["avaliacoes"], "ausentes": snap["ausentes"]})
-            print("EXATAMENTE este tipo de conteúdo seria enviado à Anthropic a cada relatório:\n")
-            print(json.dumps(facts, ensure_ascii=False, indent=2))
+            from . import reports
+            print("EXATAMENTE este conteúdo seria enviado à Anthropic (um bloco por tipo de relatório):")
+            reports.PREVIEW_ONLY = True
+            for kind, build in (("diário", lambda: reports.daily(cfg, db, day)),
+                                ("noturno", lambda: reports.nightly(cfg, db, day)),
+                                ("semanal", lambda: reports.weekly(cfg, db, day))):
+                try:
+                    facts = llm.strip_identifiers(build().facts)
+                except Exception as e:  # noqa: BLE001
+                    facts = {"indisponivel": type(e).__name__}
+                print(f"\n--- relatório {kind} ---")
+                print(json.dumps(facts, ensure_ascii=False, indent=2, default=str))
             print("\nEscopo:", llm.CONSENT_SCOPE)
             return 0
         if args.acao == "consentir":
@@ -384,7 +486,8 @@ def main(argv: list[str] | None = None) -> int:
             print("Nada foi apagado. Use --confirmar e digite APAGAR.")
             return 1
         for name in ("healthmon.db", "dashboard_auth.json", "vapid.json", "kb_verificacao.json", "kb_extra.json",
-                     "consentimento_ia_nuvem.json", "healthmon.log", "secrets.env"):
+                     "consentimento_ia_nuvem.json", "healthmon.log", "secrets.env", "config.toml",
+                     "recovery_public.key", "recovery_fingerprint", "offsite_state.json", "validacao_garmin.json", "servico.ativo"):
             (cfg.home / name).unlink(missing_ok=True)
         for f in list(cfg.home.glob("healthmon*.db*")) + [cfg.db_path, Path(str(cfg.db_path) + "-wal"), Path(str(cfg.db_path) + "-shm")]:
             f.unlink(missing_ok=True)

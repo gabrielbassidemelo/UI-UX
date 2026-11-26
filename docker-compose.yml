@@ -1,10 +1,5 @@
-# Uso guiado (recomendado):  ./deploy/oracle/configurar.sh
-# Uso manual:
-#   docker compose run --rm healthmon healthmon init
-#   (grave GARMIN_PERSONAL_API_KEY e HEALTHMON_BACKUP_PASSPHRASE em data/secrets.env)
-#   docker compose run --rm healthmon healthmon validar-garmin
-#   docker compose run --rm healthmon healthmon senha-dashboard
-#   docker compose up -d
+# Use SEMPRE o roteiro guiado:  ./deploy/oracle/configurar.sh   (docs/IMPLANTACAO.md)
+# Ele configura a chave de recuperação e a cópia externa dos backups ANTES de qualquer dado real.
 # IA local opcional:  docker compose --profile ia-local up -d   e  [ia] modo = "local", ollama_url = "http://ollama:11434"
 services:
   healthmon:

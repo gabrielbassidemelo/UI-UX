@@ -14,9 +14,10 @@ import base64
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from cryptography.exceptions import InvalidTag
@@ -63,7 +64,7 @@ def _parse_private(text: str) -> X25519PrivateKey:
         raw = base64.b32decode(t + "=" * (-len(t) % 8))
     except Exception:
         raise BackupError("Chave de recuperação inválida (formato)") from None
-    if len(raw) != 36 or hashlib.sha256(raw[:32]).digest()[:4] != raw[32:]:
+    if len(raw) != 36 or _b32(raw) != t or hashlib.sha256(raw[:32]).digest()[:4] != raw[32:]:
         raise BackupError("Chave de recuperação inválida (confira a digitação)")
     return X25519PrivateKey.from_private_bytes(raw[:32])
 
@@ -72,9 +73,38 @@ def public_key_path(cfg: Config) -> Path:
     return cfg.home / PUBKEY_FILE
 
 
+def fingerprint(public_raw: bytes) -> str:
+    return hashlib.sha256(public_raw).hexdigest()[:16]
+
+
+def public_from_private(private_text: str) -> str:
+    """Chave pública correspondente a uma chave de recuperação (usada ao reconstruir o servidor)."""
+    return base64.urlsafe_b64encode(_parse_private(private_text).public_key().public_bytes(**_RAW)).decode()
+
+
+def pin_path(cfg: Config) -> Path:
+    return cfg.home / "recovery_fingerprint"
+
+
+def expected_fingerprint(cfg: Config) -> str | None:
+    p = pin_path(cfg)
+    return p.read_text(encoding="utf-8").strip() or None if p.exists() else None
+
+
+def service_active(cfg: Config, max_age: float = 150.0) -> bool:
+    """O serviço em execução renova $HOME/servico.ativo a cada minuto e o apaga ao encerrar."""
+    import time
+    f = cfg.home / "servico.ativo"
+    return f.exists() and time.time() - f.stat().st_mtime < max_age
+
+
 def save_public_key(cfg: Config, public: str) -> Path:
     p = public_key_path(cfg)
+    raw = base64.urlsafe_b64decode(public.strip())
+    if len(raw) != 32:
+        raise BackupError("Chave pública inválida")
     write_private_file(p, public.strip() + "\n")
+    write_private_file(pin_path(cfg), fingerprint(raw) + "\n")   # a partir daqui o formato antigo é recusado
     return p
 
 
@@ -155,6 +185,8 @@ def _split_v2(blob: bytes) -> tuple[dict, bytes, bytes, bytes, bytes]:
         header = json.loads(blob[9:9 + hlen])
     except ValueError:
         raise BackupError("Cabeçalho do backup inválido") from None
+    if not isinstance(header, dict) or not all(isinstance(header.get(k), str) for k in ("criado_utc", "efemera", "sha256_banco")):
+        raise BackupError("Cabeçalho do backup inválido")
     pre = blob[:9 + hlen]
     return header, pre, blob[9 + hlen:21 + hlen], blob[21 + hlen:-32], blob[-32:]
 
@@ -171,6 +203,12 @@ def create_backup(cfg: Config, dest_dir: Path | None = None) -> Path:
     dest_dir = dest_dir or cfg.backup_dir
     ensure_private_dir(dest_dir)
     recip = _load_public(cfg)
+    pin = expected_fingerprint(cfg)
+    if pin and recip is None:
+        # Nunca voltar em silêncio ao formato antigo (que o servidor consegue abrir) depois de adotar a chave de recuperação.
+        raise BackupError("A chave pública de recuperação sumiu do servidor. Backup recusado; rode 'healthmon chaves-recuperacao --forcar'.")
+    if pin and fingerprint(recip) != pin:
+        raise BackupError("A chave pública de recuperação foi trocada (impressão digital diferente da registrada). Backup recusado.")
     if recip is None:
         _passphrase(cfg)                                 # falha cedo se nem HMBK1 for possível
     with tempfile.TemporaryDirectory() as td:
@@ -243,20 +281,39 @@ def verify_backup(cfg: Config, path: Path, recovery_key: str | None = None) -> d
 
 
 def restore_backup(cfg: Config, path: Path, recovery_key: str | None = None, target: Path | None = None) -> Path:
-    """Restaura o banco (HMBK1 ou HMBK2). `target` permite restaurar fora de cfg.db_path (ensaios)."""
+    """Restaura o banco (HMBK1 ou HMBK2). `target` permite restaurar fora de cfg.db_path (ensaios).
+    Recusa restaurar sobre o banco em uso: o serviço precisa estar parado. O banco anterior é preservado
+    como cópia consistente (incluindo o que estava só no WAL) e a troca é atômica."""
     data = decrypt_backup(cfg, path, recovery_key)
     ok, _ = _check_db_bytes(data)
     if ok != "ok":
         raise RuntimeError(f"Backup falhou na verificação de integridade: {ok}")
+    in_place = target is None
     target = Path(target) if target else cfg.db_path
+    if in_place and service_active(cfg):
+        raise BackupError("O serviço está em execução. Pare-o antes de restaurar (docker compose stop healthmon) "
+                          "e aguarde alguns segundos.")
     if target.exists():
         keep = target.with_suffix(f".antes-restauracao-{datetime.now().strftime('%Y%m%d%H%M%S')}.db")
-        target.rename(keep)
-        for ext in ("-wal", "-shm"):
-            side = Path(str(target) + ext)
-            if side.exists():
-                side.unlink()
-    write_private_file(target, data)
+        src = sqlite3.connect(target, timeout=30)
+        dst = sqlite3.connect(keep)
+        try:
+            src.backup(dst)                              # inclui o conteúdo do WAL
+            dst.execute("PRAGMA journal_mode=DELETE")
+            dst.commit()
+        except sqlite3.DatabaseError:                    # banco atual corrompido: guarda o arquivo como está
+            dst.close()
+            Path(keep).unlink(missing_ok=True)
+            shutil.copy2(target, keep)
+        finally:
+            src.close()
+            dst.close()
+        os.chmod(keep, 0o600)
+    tmp = target.with_name(target.name + ".restaurando")
+    write_private_file(tmp, data)
+    for ext in ("-wal", "-shm"):
+        Path(str(target) + ext).unlink(missing_ok=True)
+    os.replace(tmp, target)
     con = sqlite3.connect(target)
     try:
         con.execute("PRAGMA integrity_check").fetchone()
@@ -291,3 +348,21 @@ def rotate(cfg: Config, dest_dir: Path) -> list[Path]:
             f.unlink()
             removed.append(f)
     return removed
+
+
+def header_matches_name(path: Path, header: dict) -> bool | str:
+    """Confere se a data do cabeçalho (autenticada) é compatível com a data no nome do arquivo e não está no futuro.
+    Um backup antigo copiado com nome mais novo é detectado aqui. Devolve True ou a explicação."""
+    try:
+        made = datetime.strptime(header["criado_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (KeyError, ValueError):
+        return "O cabeçalho não traz uma data de criação válida."
+    if made > datetime.now(timezone.utc) + timedelta(hours=1):
+        return "A data de criação do cabeçalho está no futuro."
+    try:
+        named = datetime.strptime(Path(path).stem.split("-", 1)[1], "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc)
+    except (IndexError, ValueError):
+        return True                                       # nome fora do padrão (arquivo local renomeado): sem comparação
+    if abs((named - made).total_seconds()) > 15 * 3600:   # o nome usa hora local; o cabeçalho, UTC
+        return f"O nome do arquivo indica {named:%d/%m/%Y %H:%M}, mas o conteúdo foi criado em {made:%d/%m/%Y %H:%M} UTC."
+    return True

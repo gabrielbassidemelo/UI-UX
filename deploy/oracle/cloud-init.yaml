@@ -2,7 +2,7 @@
 # Oracle Cloud Always Free — preparação da VM (Ubuntu 24.04, AMD E2.1.Micro ou Ampere A1).
 # Cole este arquivo em "Advanced options > Initialization script" ao criar a instância.
 # NÃO coloque segredos aqui: a chave da Garmin e as senhas são digitadas depois, no terminal,
-# pelo script /usr/local/bin/healthmon-configurar. Nenhuma porta pública é aberta além do SSH
+# pelo script deploy/oracle/configurar.sh. Nenhuma porta pública é aberta além do SSH
 # padrão da Oracle, que o script fecha depois que o Tailscale estiver funcionando.
 package_update: true
 package_upgrade: true
@@ -26,5 +26,6 @@ runcmd:
   - apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
   - curl -fsSL https://tailscale.com/install.sh | sh
   - timedatectl set-timezone America/Sao_Paulo
-  - useradd --create-home --shell /bin/bash --groups docker healthmon || true
+  # O operador é o usuário padrão 'ubuntu' (já tem sudo). Participar do grupo docker equivale a ser root na VM.
+  - usermod -aG docker ubuntu
   - systemctl enable --now docker

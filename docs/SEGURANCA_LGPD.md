@@ -13,7 +13,7 @@ saúde existe em lugar algum além da Garmin.
 | Banco com tudo (indicadores, perfil, triagem de saúde, refeições, exames, check-ins) | Arquivo `data/healthmon.db` no disco da sua VM na Oracle, na região da conta (São Paulo ou Vinhedo) | Disco cifrado pela Oracle com chaves dela; pasta 700; contêiner sem root; nenhuma porta pública |
 | Backups diários | `data/backups/` na VM e cópia no seu bucket do Oracle Object Storage | **Cifrados antes de sair da VM** (formato HMBK2). Só abrem com a chave de recuperação, que **não está no servidor nem no bucket** |
 | Cópia independente | App Arquivos/iCloud do iPhone, quando você baixa pelo painel | O mesmo arquivo cifrado |
-| Chave de recuperação `HMRK-…` | Só com você (app Senhas) | Aparece uma vez no terminal |
+| Chave de recuperação `HMRK-…` | Só com você (app Senhas). Não é gravada no servidor | Aparece uma vez no terminal; você a digita de novo (tela oculta, sem log) para conferi-la, nos ensaios e numa restauração |
 | Chave da Garmin, URL do bucket, senha do painel (hash) | `data/secrets.env` e `data/dashboard_auth.json` na VM (600) | Não entram em backup, log, relatório ou repositório |
 
 ### Quem tem acesso técnico
@@ -49,6 +49,10 @@ só os arquivos da interface, não as respostas com dados.
 | Desativar completamente | Sequência de 6 passos em `IMPLANTACAO.md`, "Exportar, apagar e desativar tudo" |
 
 ### Riscos que permanecem e que você aceita ao autorizar
+- O usuário que opera a VM (`ubuntu`) é administrador dela. Quem obtiver acesso a esse usuário, ou à sua conta
+  Tailscale ou Oracle, lê o banco. Proteja as três contas com senha forte e segundo fator.
+- `apagar-dados` remove banco, segredos, configuração, relatórios, exames e backups locais. Não alcança o bucket,
+  as cópias no iPhone nem os dados que continuam na Garmin.
 - O banco em uso não tem cifragem própria: depende da cifragem de disco da Oracle e do isolamento da VM.
 - A Oracle pode recuperar a VM gratuita por ociosidade ou encerrar a conta. Mitigação: backup externo diário
   (perda máxima de 24 h) e cópia independente no iPhone. **Se os dois estiverem na Oracle e a conta for

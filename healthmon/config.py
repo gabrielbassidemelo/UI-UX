@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import stat
 import tomllib
@@ -84,7 +85,7 @@ def load_secrets_file(path: Path) -> dict[str, str]:
 class Config:
     home: Path
     data: dict[str, Any]
-    secrets: dict[str, str] = field(default_factory=dict)
+    secrets: dict[str, str] = field(default_factory=dict, repr=False)   # nunca em repr/log
 
     # --- atalhos -----------------------------------------------------
     def get(self, section: str, key: str, default: Any = None) -> Any:
@@ -161,3 +162,35 @@ def init_home(home: Path | None = None) -> Path:
             "ANTHROPIC_API_KEY=\n",
         )
     return home
+
+
+def set_secret(home: Path, name: str, value: str) -> None:
+    """Grava/atualiza um segredo em secrets.env de forma atômica (600). O valor nunca passa por linha de comando."""
+    if not re.fullmatch(r"[A-Z][A-Z0-9_]*", name) or "\n" in value or "\r" in value:
+        raise ValueError("segredo inválido")
+    path = home / "secrets.env"
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    lines = [ln for ln in lines if not ln.startswith(name + "=")] + [f"{name}={value}"]
+    tmp = path.with_name(".secrets.env.tmp")
+    write_private_file(tmp, "\n".join(lines) + "\n")
+    os.replace(tmp, path)
+
+
+def set_config_value(home: Path, section: str, key: str, value: str) -> None:
+    """Troca `key = "..."` dentro de [section] no config.toml (valor de texto simples)."""
+    if not re.fullmatch(r"[A-Za-z0-9_.:/\- ]*", value):
+        raise ValueError("valor inválido")
+    path = home / "config.toml"
+    out, cur, done = [], None, False
+    for ln in path.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"^\[([^\]]+)\]", ln.strip())
+        if m:
+            cur = m.group(1)
+        if cur == section and re.match(rf"^{re.escape(key)}\s*=", ln) and not done:
+            ln, done = (f"{key} = {value}" if value in ("true", "false") else f'{key} = "{value}"'), True
+        out.append(ln)
+    if not done:
+        raise KeyError(f"[{section}] {key} não encontrado em config.toml")
+    tmp = path.with_name(".config.toml.tmp")
+    write_private_file(tmp, "\n".join(out) + "\n")
+    os.replace(tmp, path)

@@ -4,21 +4,36 @@ Todas passam pelo middleware de sessão e CSRF de app.py. Erros de validação v
 """
 from __future__ import annotations
 
+import json
 import math
 import re
 from datetime import date, timedelta
 from typing import Any, Callable
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import Response
 
 from .. import analysis as an
-from .. import kb, labs, learning, metabolism as met, nutrition as nut, planner, profile as prof
+from .. import backup, calibration, garmin_validation, kb, labs, learning, offsite, safety
+from .. import metabolism as met, nutrition as nut, planner, profile as prof
 from .. import stats, supplements as sup, training as tr
 from ..config import Config
 from ..db import Database, utcnow
 from ..garmin_official import NOT_IN_PERSONAL_API, key_expiry_status
 from ..metrics import METRICS
 from ..sync import today_local
+
+URGENT_TEXT = ("Sintoma de alerta marcado: procure atendimento de urgência agora (SAMU 192). Não treine e não use este "
+               "painel para decidir o que fazer.")
+_URL_RE = re.compile(r"https?://\S+|/p/[^/\s\"']+", re.I)
+_PATH_RE = re.compile(r"(?:[A-Za-z]:\\|/)(?:[\w.\-~]+[/\\])+[\w.\-~]*")
+
+
+def scrub(text: Any) -> str | None:
+    """Remove URLs, tokens de PAR e caminhos absolutos de mensagens de erro antes de sair pela API."""
+    if text is None:
+        return None
+    return _PATH_RE.sub("[caminho]", _URL_RE.sub("[url]", str(text)))[:300]
 
 
 def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date]) -> None:
@@ -68,7 +83,13 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
         for i in range(6, -1, -1):
             dd = d - timedelta(days=i)
             trend.append({"dia": dd.isoformat(), "status": an.recovery(store, dd).status if store.raw(dd) else "sem_dado"})
-        return {**plan, "tendencia_recuperacao": trend, "nutricao": nut.day_summary(db, cfg, d),
+        nutr = nut.day_summary(db, cfg, d)
+        blk = safety.screen(db, cfg, d)["bloqueios"]
+        if blk.get("metas_nutricionais") or blk.get("metas_peso") or nut.review_targets(db, cfg, d)["estado"] == "indisponivel":
+            # meta bloqueada/indisponível: nunca mostrar a meta antiga como se estivesse valendo
+            nutr = {**nutr, "meta": None, "meta_bloqueada": True}
+            nutr.pop("restante", None)
+        return {**plan, "tendencia_recuperacao": trend, "nutricao": nutr,
                 "ultima_sincronizacao": db.last_successful_sync(),
                 "alertas": [a for a in db.alerts(10) if not a["acknowledged"]],
                 "objetivos": planner.goals_progress(db, d), "demo": db.get_setting("data_source") == "demo"}
@@ -86,24 +107,83 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
         b = await body(request)
         return {"perfil": guard(lambda: prof.update(db, b)), "faltam": prof.missing(db)}
 
+    ADHERENCE = {"sim": 1.0, "parcial": 0.5, "nao": 0.0, "não": 0.0}
+    SCALE_1_10 = ("perceived_recovery",)
+    SCALE_1_5 = ("energy", "soreness", "mood", "sleep_quality", "fatigue", "perceived_stress")
+
+    def whole(b: dict, k: str, lo: int, hi: int) -> int | None:
+        """Inteiro em [lo, hi]; vazio/ausente = None (nunca zero). Rejeita decimais, texto e booleanos."""
+        v = b.get(k)
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        if isinstance(v, bool):
+            raise HTTPException(400, f"{k}: use um número inteiro de {lo} a {hi}")
+        try:
+            f = float(str(v).replace(",", ".").strip())
+        except (ValueError, OverflowError) as e:
+            raise HTTPException(400, f"{k}: número inválido") from e
+        if not math.isfinite(f) or f != int(f):
+            raise HTTPException(400, f"{k}: use um número inteiro de {lo} a {hi}")
+        if not lo <= int(f) <= hi:
+            raise HTTPException(400, f"{k}: fora de {lo}–{hi}")
+        return int(f)
+
+    def parse_triagem(v: Any) -> str | None:
+        """Triagem de sintomas do dia: objeto com TODAS as chaves de safety.SYMPTOMS, valores booleanos.
+        Chaves desconhecidas, faltantes ou valores não booleanos são rejeitados (não respondido não vira 'não')."""
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except ValueError as e:
+                raise HTTPException(400, "triagem: JSON inválido") from e
+        if not isinstance(v, dict):
+            raise HTTPException(400, "triagem: deve ser um objeto {sintoma: true/false}")
+        unknown = sorted(set(v) - set(safety.SYMPTOMS))
+        if unknown:
+            raise HTTPException(400, "triagem: chave(s) desconhecida(s): " + ", ".join(str(x)[:30] for x in unknown[:5]))
+        absent = [k for k in safety.SYMPTOMS if k not in v]
+        if absent:
+            raise HTTPException(400, "triagem: responda todos os sintomas; faltam: " + ", ".join(absent))
+        if any(not isinstance(x, bool) for x in v.values()):
+            raise HTTPException(400, "triagem: cada resposta deve ser verdadeiro ou falso")
+        return json.dumps({k: v[k] for k in safety.SYMPTOMS}, ensure_ascii=False)
+
     @app.post("/api/checkin")
     async def checkin(request: Request):
         b = await body(request)
         d = day_arg(b.get("dia")).isoformat()
         row: dict[str, Any] = {"date": d, "updated_at": utcnow()}
-        limits = {"perceived_recovery": (1, 10), "energy": (1, 5), "soreness": (1, 5), "mood": (1, 5), "sleep_quality": (1, 5),
-                  "caffeine_mg": (0, 1500), "alcohol_units": (0, 30), "water_ml": (0, 10000)}
-        for k, (lo, hi) in limits.items():
+        for k in SCALE_1_10:
+            v = whole(b, k, 1, 10)
+            if v is not None:
+                row[k] = v
+        for k in SCALE_1_5:
+            v = whole(b, k, 1, 5)
+            if v is not None:
+                row[k] = v
+        for k, (lo, hi) in {"caffeine_mg": (0, 1500), "alcohol_units": (0, 30), "water_ml": (0, 10000)}.items():
             if b.get(k) not in (None, ""):
                 v = guard(lambda: float(b[k]))
-                if not lo <= v <= hi:
+                if not math.isfinite(v) or not lo <= v <= hi:
                     raise HTTPException(400, f"{k}: fora de {lo}–{hi}")
                 row[k] = v
+        if b.get("adherence") not in (None, ""):
+            key = str(b["adherence"]).strip().lower()
+            if key not in ADHERENCE:
+                raise HTTPException(400, "adherence: use sim, parcial ou nao")
+            row["adherence"] = ADHERENCE[key]
+        tri = parse_triagem(b.get("triagem"))
+        if tri is not None:
+            row["triagem"] = tri
         for k, n in (("caffeine_last_time", 5), ("symptoms", 300), ("notes", 500)):
             if b.get(k):
                 row[k] = str(b[k])[:n]
         db.insert("checkins", row, upsert_on="date")
-        return {"ok": True, "prontidao": tr.readiness(db, cfg, date.fromisoformat(d))}
+        ready = tr.readiness(db, cfg, date.fromisoformat(d))
+        return {"ok": True, "prontidao": ready, "urgente": bool(ready.get("urgente")),
+                "aviso_urgente": URGENT_TEXT if ready.get("urgente") else None}
 
     @app.get("/api/checkin")
     def checkin_get(dia: str | None = None):
@@ -151,7 +231,15 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
     @app.get("/api/treino")
     def treino():
         d = today()
-        return {"ativo": tr.get_plan(db), "proposto": tr.get_plan(db, "proposto"), "hoje": tr.todays_session(db, cfg, d),
+        stop = safety.blocked(safety.screen(db, cfg, d), "treino_plano")
+        hoje = tr.todays_session(db, cfg, d)
+        ativo, proposto = tr.get_plan(db), tr.get_plan(db, "proposto")
+        if stop:   # plano antigo não é exibido enquanto a triagem o bloqueia
+            ativo = proposto = None
+            if hoje.get("tipo") != "descanso":
+                hoje = {"dia": hoje["dia"], "prontidao": hoje["prontidao"], "tipo": "bloqueado", "titulo": "Treino personalizado suspenso",
+                        "texto": stop}
+        return {"ativo": ativo, "proposto": proposto, "hoje": hoje, "bloqueio": stop,
                 "zonas": tr.hr_zones(db, cfg, d), "semana": tr.weekly_summary(db, d), "faltam": prof.missing(db, "treino")["treino"],
                 "limites": tr.SAFETY, "evidencias": kb.cite(["acsm2009", "schoenfeld2017volume", "schoenfeld2016freq",
                                                               "zourdos2016", "refalo2023", "garber2011", "bull2020", "meeusen2013"], cfg)}
@@ -202,7 +290,12 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
         d = day_arg(dia)
         rev = nut.review_targets(db, cfg, d)
         refs = (rev.get("calculada") or {}).get("refs") or ["morton2018", "jager2017"]
-        return {"resumo": nut.day_summary(db, cfg, d), "revisao": rev, "consistencia": nut.consistency(db, cfg, d),
+        resumo = nut.day_summary(db, cfg, d)
+        if rev["estado"] == "indisponivel":   # sem metas antigas quando a meta está bloqueada ou indisponível
+            resumo = {**resumo, "meta": None, "meta_bloqueada": True}
+            resumo.pop("restante", None)
+            rev = {**rev, "vigente": None}
+        return {"resumo": resumo, "revisao": rev, "consistencia": nut.consistency(db, cfg, d),
                 "alimentos_na_base": db.q1("SELECT COUNT(*) n FROM foods")["n"], "limites": nut.SAFETY,
                 "evidencias": kb.cite(refs + ["garthe2011", "helms2014", "mountjoy2018"], cfg),
                 "foto": {"disponivel": False, "motivo": "Estimativa por fotografia não está implementada. Mesmo com modelos "
@@ -361,6 +454,76 @@ def register(app: FastAPI, cfg: Config, db: Database, ref_day: Callable[[], date
         ents = kb.entries(cfg)
         return {"total": len(ents), "verificadas": sum(1 for v in kb.verification(cfg).values() if v.get("ok")),
                 "graus": kb.GRADE, "resultados": kb.cite(list(ents), cfg)}
+
+    # ------------------------------------------------------- fase 3: segurança e transparência
+    @app.get("/api/calibracao")
+    def calibracao(dia: str | None = None):
+        st = calibration.stage(db, day_arg(dia))
+        st["suspenso"] = [k for k, v in st["permite"].items() if not v]
+        return st
+
+    @app.get("/api/evidencias/resumo")
+    def evidencias_resumo():
+        return {**kb.summary(), "classes": kb.CLASSES,
+                "aviso": "Verificação feita por modelos de IA em bases públicas; não é auditoria humana independente"}
+
+    @app.get("/api/garmin/conferencia")
+    def garmin_conf(dia: str | None = None):
+        return garmin_validation.comparison(db, day_arg(dia) if dia else ref_day())
+
+    @app.post("/api/garmin/conferencia")
+    async def garmin_conf_post(request: Request):
+        b = await body(request)
+        if not isinstance(b.get("ok"), bool):
+            raise HTTPException(400, "ok: use true (igual) ou false (diferente)")
+        if not isinstance(b.get("chave"), str):
+            raise HTTPException(400, "chave: obrigatória")
+        d = day_arg(b.get("dia")).isoformat()
+        guard(lambda: garmin_validation.record_check(db, b["chave"], b["ok"], d))
+        return {"ok": True}
+
+    @app.get("/api/backup/status")
+    def backup_status():
+        st = offsite.status(cfg)
+        err = st.get("ultimo_erro")
+        if isinstance(err, dict):
+            err = {"quando": err.get("quando"), "mensagem": scrub(err.get("mensagem")), "arquivo": err.get("arquivo")}
+        elif err is not None:
+            err = {"mensagem": scrub(err)}
+        externo = {"configurado": bool(st.get("configurado")), "ultimo_envio_ok": st.get("ultimo_envio_ok"),
+                   "ultimo_arquivo": st.get("ultimo_arquivo"), "idade_horas": st.get("idade_horas"),
+                   "ultimo_erro": err, "falhas_consecutivas": st.get("falhas_consecutivas", 0),
+                   "pendente": bool(st.get("pendente")), "atrasado": bool(st.get("atrasado")), "alerta": bool(st.get("alerta"))}
+        local: dict[str, Any] = {"existe": False}
+        try:
+            f = backup.latest_backup(cfg)
+            if f:
+                local = {"existe": True, "arquivo": f.name, "tamanho_bytes": f.stat().st_size, "formato": "HMBK1"}
+                h = backup.read_header(f)
+                if h:
+                    local.update({"formato": f"HMBK{h.get('v', 2)}", "criado_utc": h.get("criado_utc"),
+                                  "linhas_daily_metrics": h.get("linhas_daily_metrics"),
+                                  "esquema_versao": (h.get("esquema") or {}).get("user_version")})
+        except Exception:  # noqa: BLE001 — arquivo ilegível: informa só que não foi possível ler
+            local = {**local, "existe": local.get("existe", False), "erro": "não foi possível ler o cabeçalho do último backup local"}
+        return {"externo": externo, "local": local}
+
+    @app.get("/api/backup/baixar")
+    def backup_baixar():
+        f = backup.latest_backup(cfg)
+        if not f:
+            raise HTTPException(404, "Nenhum backup local encontrado.")
+        return Response(f.read_bytes(), media_type="application/octet-stream",
+                        headers={"Content-Disposition": f'attachment; filename="{f.name}"', "Cache-Control": "no-store"})
+
+    @app.get("/api/seguranca/triagem")
+    def seguranca_triagem():
+        p = prof.get(db)
+        return {"perguntas": [{"chave": k, "texto": t, "resposta": p.get(k)} for k, t in safety.TRIAGE.items()],
+                "sintomas": [{"chave": k, "texto": t, "urgente": u} for k, (t, u) in safety.SYMPTOMS.items()],
+                "limitacoes_opcoes": list(prof.LIMITATIONS), "limitacoes": p.get("limitacoes"),
+                "faltam": [k for k in ("sexo", "nascimento", "altura_cm") if k not in p] + [k for k in safety.TRIAGE if k not in p],
+                "faltam_por_area": prof.missing(db), "aviso_urgente": URGENT_TEXT}
 
     # ------------------------------------------------------------------ sistema
     @app.get("/api/sistema")

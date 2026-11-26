@@ -51,7 +51,7 @@ try:
     print(f"Baixado: {arq.name} ({arq.stat().st_size} bytes)")
     h = backup.read_header(arq)
     if h:
-        print(f"Criado em (UTC): {h['criado_utc']}   dias declarados: {h['linhas_daily_metrics']}")
+        print(f"Criado em (UTC): {h.get('criado_utc')}   dias declarados: {h.get('linhas_daily_metrics')}")
     destino = tmp / "restaurado.db"
     backup.restore_backup(cfg, arq, key, target=destino)      # target explícito: o banco em uso não é tocado
 except (offsite.OffsiteError, backup.BackupError) as e:
@@ -62,7 +62,7 @@ try:
     print("integrity_check:", con.execute("PRAGMA integrity_check").fetchone()[0])
     print("Linhas por tabela:")
     for (t,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY 1").fetchall():
-        print(f"  {t:28s} {con.execute(f'SELECT COUNT(*) FROM \"{t}\"').fetchone()[0]}")
+        print(f"  {t:28s} {con.execute('SELECT COUNT(*) FROM "' + t.replace('"', '""') + '"').fetchone()[0]}")
     print("Último dia com métricas:", con.execute("SELECT MAX(date) FROM daily_metrics").fetchone()[0])
 finally:
     con.close()

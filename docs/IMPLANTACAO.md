@@ -47,9 +47,9 @@ Aguarde uns 8 minutos: o script instala Docker, Tailscale e atualizações autom
    Funciona no Safari do iPhone, com o app Tailscale ligado.
 
 ## 4. 🔶 Obter o código
-No terminal da VM:
+No terminal da VM, com o usuário padrão `ubuntu` (ele tem `sudo` e participa do grupo `docker`, o que equivale a
+ser administrador da máquina):
 ```bash
-sudo -iu healthmon
 ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 && cat ~/.ssh/id_ed25519.pub
 ```
 Copie a linha exibida e adicione em GitHub → repositório → *Settings → Deploy keys → Add deploy key*
@@ -62,7 +62,7 @@ git checkout claude/garmin-cirqa-health-monitoring-2mpc9g
 
 ## 5. 🔶 Bucket para a cópia externa dos backups
 Siga `RECUPERACAO_DESASTRES.md`, passos 2 e 3: criar o bucket privado (com versionamento e regra de ciclo de
-vida) e a URL pré-autenticada (PAR) com permissão de escrita e listagem. Deixe a URL copiada; ela será colada
+vida; o versionamento é obrigatório) e a URL pré-autenticada (PAR) com permissão de escrita e listagem. Deixe a URL copiada; ela será colada
 no terminal no próximo passo.
 
 ## 6. 🔶 Configuração guiada
@@ -75,13 +75,16 @@ O script faz, nesta ordem, e pode ser repetido sem perder o que já foi feito:
 |---|---|---|
 | 1–2 | Constrói a imagem e cria a estrutura de dados | Nada |
 | 3 | Senha do painel | Digita uma senha de 10+ caracteres |
-| 4 | Gera a chave de recuperação dos backups | **Guarda a chave `HMRK-…` no app Senhas.** Ela não fica no servidor |
-| 5 | Grava a URL do bucket e testa backup → envio → conferência com o banco vazio | Cola a URL (oculta) |
-| 6 | Verificações de segurança (permissões, painel só local, sem root, IA externa desligada, Tailscale ligado, sem exposição pública) | Nada; se algo falhar, o script para |
+| 4 | Verifica se já existe chave de recuperação | Nada |
+| 5 | Pede a URL do bucket; se o bucket já tiver backups e a máquina for nova, para e indica o modo `--recuperar`. Gera a chave de recuperação, cria um backup do banco vazio, envia, confere e **abre o backup com a sua chave** | Cola a URL (oculta); **guarda a chave `HMRK-…` no app Senhas** e a cola de volta duas vezes quando pedido |
+| 6 | Verificações de segurança (permissões, painel só local, contêiner sem root, IA externa desligada, Tailscale ligado, sem exposição pública) | Nada; se algo falhar, o script para |
 | 7 | Mostra para onde os dados vão e pede autorização | Digita `AUTORIZO` (ou encerra) |
-| 8 | Chave pessoal da Garmin | Gera em connect.garmin.com/app/settings/personalApiToken e cola (oculta) |
+| 8 | Chave pessoal da Garmin e data de expiração | Gera em connect.garmin.com/app/settings/personalApiToken e cola (oculta) |
 | 9 | Validação real da API da Garmin | Nada |
 | 10 | Inicia o serviço e publica o painel só na sua rede Tailscale, com HTTPS | Abre o endereço no Safari |
+
+Os segredos são digitados dentro de um contêiner sem registro de saída: não passam por linha de comando,
+histórico do terminal nem logs.
 
 Sem backup externo funcionando o script **não pede** a chave da Garmin.
 
@@ -99,7 +102,7 @@ Sem backup externo funcionando o script **não pede** a chave da Garmin.
 7. **Ensaio de recuperação** (obrigatório antes de confiar no backup): `RECUPERACAO_DESASTRES.md`,
    seção "Recuperação completa em VM nova". O ensaio rápido, que não toca no banco em uso:
    ```bash
-   docker compose run --rm -v "$PWD/deploy:/deploy:ro" healthmon bash /deploy/oracle/ensaio-recuperacao.sh
+   docker run --rm -it --log-driver none --tmpfs /tmp -v "$PWD/data:/data" -v "$PWD/deploy:/deploy:ro" healthmon:local bash /deploy/oracle/ensaio-recuperacao.sh
    ```
 8. **Cópia independente da Oracle:** em Configurações → Backup → *Baixar backup cifrado*, salve no app
    Arquivos (iCloud) uma vez por semana. O arquivo só abre com a chave de recuperação.
@@ -121,12 +124,12 @@ Sem backup externo funcionando o script **não pede** a chave da Garmin.
 O sistema avisa 14 e 3 dias antes da data informada (a Garmin também envia e-mail). Gere a nova chave e, na VM:
 ```bash
 cd ~/healthmon
-read -r -s -p "Nova chave: " K; echo
-sudo sed -i "s|^GARMIN_PERSONAL_API_KEY=.*|GARMIN_PERSONAL_API_KEY=$K|" data/secrets.env; unset K
-sudo sed -i 's/^chave_expira_em = .*/chave_expira_em = "AAAA-MM-DD"/' data/config.toml
+docker run --rm -it --log-driver none -v "$PWD/data:/data" healthmon:local healthmon trocar-chave-garmin
 docker compose restart healthmon
+docker compose run --rm healthmon healthmon validar-garmin
 ```
-Troque `AAAA-MM-DD` pela nova data antes de colar o terceiro comando.
+O comando pede a chave com a tela oculta e a nova data de expiração. Não edite `secrets.env` com `sed` nem cole a
+chave numa linha de comando: ela ficaria no histórico e nos registros do sistema.
 
 ## Atualização do sistema
 ```bash
@@ -144,10 +147,10 @@ cd ~/healthmon && git pull && docker compose build && docker compose up -d
 | Formato da resposta mudou | O endpoint é marcado com erro, o resto continua; alerta | `validar-garmin` e ajuste do leitor |
 | Backup local falhou | Alerta "Backup diário falhou" | Ver Configurações → Histórico de execuções |
 | Envio externo falhou | Novas tentativas às 9h20, 15h20 e 21h20; alerta após 2 falhas ou 36 h sem envio | Conferir a validade da URL do bucket (`RECUPERACAO_DESASTRES.md`, passo 4) |
-| Banco corrompido | — | `docker compose run --rm healthmon healthmon restaurar` (baixa o último backup externo e pede a chave) |
-| VM perdida ou recuperada pela Oracle | — | `RECUPERACAO_DESASTRES.md`, "Recuperação completa em VM nova" |
+| Banco corrompido | — | Parar o serviço e restaurar: `RECUPERACAO_DESASTRES.md`, "Recuperação completa em VM nova", parágrafo sobre servidor de pé |
+| VM perdida ou recuperada pela Oracle | — | VM nova e `./deploy/oracle/configurar.sh --recuperar` (`RECUPERACAO_DESASTRES.md`) |
 | Esqueci a senha do painel | — | `docker compose run --rm healthmon healthmon senha-dashboard` |
-| Perdi a chave de recuperação | Os backups antigos ficam ilegíveis | Com o servidor ainda de pé: `healthmon chaves-recuperacao --forcar` e guarde a nova chave |
+| Perdi a chave de recuperação | Os backups antigos ficam ilegíveis | Com o servidor ainda de pé: `docker run --rm -it --log-driver none -v "$PWD/data:/data" healthmon:local healthmon chaves-recuperacao --forcar` e guarde a nova chave |
 
 ## Exportar, apagar e desativar tudo
 - Exportar tudo em JSON: `docker compose run --rm healthmon healthmon exportar /data/exportacao.json`

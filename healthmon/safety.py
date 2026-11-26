@@ -202,23 +202,63 @@ def blocked(scr: dict[str, Any], area: str) -> str | None:
 
 
 # ------------------------------------------------------------ filtro de texto gerado por IA
+# O filtro é uma defesa adicional, não uma garantia: a IA fica desligada por padrão e nunca decide nada.
+# Estratégia: normalização forte e bloqueio por VOCABULÁRIO (qualquer menção a medicamento, dose, doença,
+# diagnóstico, jejum/restrição ou esforço intenso descarta o texto inteiro), em vez de tentar prever frases.
+_CONFUSABLE = str.maketrans("аеорсхуіјѕԁɡһ", "aeopcxyijsdgh")          # letras cirílicas/semelhantes → latinas
+_NUM_WORDS = (r"(um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|vinte|trinta|quarenta|cinquenta|sessenta|"
+              r"setenta|oitenta|noventa|cem|cento|duzent\w+|trezent\w+|quatrocent\w+|quinhent\w+|seiscent\w+|setecent\w+|"
+              r"oitocent\w+|novecent\w+|mil|meio|meia|\d+([.,]\d+)?)")
 FORBIDDEN_LLM = [
-    r"\b(aument|reduz|suspend|interromp|pare de|dobr|troque|substitu)\w*\s+(a|o|sua|seu|as|os)?\s*(dose|medica|remedio|insulina|levotiroxina|anti\w+)",
-    r"\b(diagnostic|voce tem|voce esta com|provavel(mente)?\s+\w*\s*(hipo|hiper|diabet|anemia|apneia|depress|arritmia|infec))",
-    r"\b(hipotireoidismo|hipertireoidismo|diabetes|anemia|apneia|fibrilacao|depressao|overtraining)\s+(provavel|confirmad)",
-    r"\b\d+\s*(mg|mcg|ui|g)\b",                      # doses
-    r"\b(hiit|treino intenso|alta intensidade|ate a falha)\b",
-    r"\b(jejum|dieta de \d+|corte \d+ ?kcal)\b",
+    # medicamentos, doses e formas farmacêuticas (qualquer menção)
+    r"\b(dose|doses|dosagem|posologia|medica\w*|remedio\w*|farmaco\w*|comprimido\w*|capsula\w*|gotas|injec\w*|receita medica|"
+    r"prescri\w*|insulina|levotiroxina|metformina|varfarina|anticoagul\w*|antidepress\w*|ansiolit\w*|betabloq\w*|diuretic\w*|"
+    r"estatina\w*|corticoid\w*|anti inflamat\w*|antiinflamat\w*|ibuprofeno|paracetamol|dipirona|aspirina|antibiotic\w*|"
+    r"anabolizant\w*|esteroide\w*|testosterona|hormonio\w*|melatonina|sibutramina|ozempic|semaglutida|suplement\w*|"
+    r"creatina|cafeina|vitamina\w*|omega|magnesio|whey)\b",
+    rf"\b{_NUM_WORDS}\s*(mg|mcg|ug|ui|g|ml|miligrama\w*|micrograma\w*|grama|gramas|unidade\w*|gota\w*)\b",
+    # diagnóstico e doenças (qualquer menção)
+    r"\b(diagnostic\w*|doenca\w*|sindrome\w*|transtorno\w*|patologi\w*|hipotireoid\w*|hipertireoid\w*|tireoid\w*|diabet\w*|"
+    r"anemia|apneia|fibrilac\w*|arritmia\w*|depressao|ansiedade generalizada|hipertens\w*|infarto|avc|cancer|tumor|"
+    r"infecc\w*|covid|overtraining|sobretreinamento|insuficiencia\w*|cardiopat\w*|nefropat\w*|hepat\w*)\b",
+    r"\bvoce (tem|esta com|pode ter|deve ter|sofre)\b",
+    r"\b(indica\w*|sugere\w*|aponta\w*|compativel com|sinal de|sinais de)\s+(um |uma |de |que voce )",
+    # restrição alimentar e jejum
+    r"\b(jejum|jejuar|sem comer|pule (o|a|as) refeic\w*|pular refeic\w*|dieta de|dieta zero|low carb|cetogenic\w*|detox|"
+    r"laxante\w*|corte\w* (os )?carboidrato\w*)\b",
+    rf"\b{_NUM_WORDS}\s*(k?cal|caloria\w*|quilocaloria\w*)\b",
+    # esforço intenso
+    r"\b(hiit|tiro\w*|sprint\w*|treino intenso|treine pesado|treinar pesado|pesado|alta intensidade|maxim\w+|ate a falha|"
+    r"ate a exaustao|exaustao|no limite|forte|force)\b",
 ]
+_TRAIN = r"\b(trein\w*|corr\w*|pedal\w*|muscula\w*|agach\w*|exercit\w*|academia|serie\w*|km|quilometro\w*|nadar|natacao|bike)\b"
+
+
+def _norm_llm(text: str) -> tuple[str, bool]:
+    """Normalização para o filtro. Devolve (texto, suspeito): suspeito = sobra escrita fora do alfabeto latino."""
+    t = unicodedata.normalize("NFKC", str(text or ""))
+    t = "".join(c for c in t if unicodedata.category(c) not in ("Cf", "Cc", "Co", "Cn") or c in "\n\t ")
+    t = t.translate(_CONFUSABLE)
+    t = unicodedata.normalize("NFD", t.lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    odd = any(c.isalpha() and not ("a" <= c <= "z") for c in t)
+    t = re.sub(r"[^a-z0-9.,]+", " ", t)
+    t = re.sub(r"\b((?:[a-z] ){2,}[a-z])\b", lambda m: m.group(1).replace(" ", ""), t)     # "h i i t" → "hiit"
+    return re.sub(r"\s+", " ", t).strip(), odd
 
 
 def llm_text_allowed(text: str, readiness_level: str | None = None) -> tuple[bool, str]:
-    """Rejeita texto de IA com diagnóstico, dose, alteração de medicamento ou incentivo a esforço intenso."""
-    t = norm(text)
+    """Rejeita texto de IA com menção a medicamento, dose, doença/diagnóstico, restrição alimentar ou esforço intenso,
+    e qualquer incentivo a treino em dia de pausa ou de recuperação. Em caso de dúvida, descarta."""
+    t, odd = _norm_llm(text)
+    if odd:
+        return False, "caracteres fora do alfabeto latino"
     for pat in FORBIDDEN_LLM:
         if re.search(pat, t):
             return False, pat
-    if readiness_level in ("parar", "recuperacao") and re.search(r"\b(trein|corr|pedal|muscula)\w*", t) \
-            and not re.search(r"\b(nao|evite|descans|suspen)\w*", t):
+    if readiness_level in ("parar", "recuperacao") and re.search(_TRAIN, t) \
+            and not re.search(r"\b(nao trein\w*|sem trein\w*|evite\w*|descans\w*|suspen\w*|pausa|repouso|leve|caminhada)\b", t):
+        return False, "incentiva treino em dia de pausa"
+    if readiness_level == "parar" and re.search(_TRAIN, t) and not re.search(r"\b(nao trein\w*|sem trein\w*|descans\w*|repouso)\b", t):
         return False, "incentiva treino em dia de pausa"
     return True, ""

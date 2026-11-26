@@ -114,7 +114,12 @@ class Report:
     ai_mode: str = "regras"
 
 
+PREVIEW_ONLY = False        # True: monta os fatos sem chamar IA nem gravar (prévia de consentimento)
+
+
 def _finish(cfg: Config, db: Database, rep: Report) -> Report:
+    if PREVIEW_ONLY:
+        return rep
     text, mode = narrate(cfg, rep.kind, rep.facts)
     rep.ai_mode = mode
     if text:
@@ -221,7 +226,8 @@ def daily(cfg: Config, db: Database, day: date, sync_failed: bool = False) -> Re
     if pts:
         summary += f" · {len(pts)} ponto(s) de atenção"
     facts = {"dia": day.isoformat(), "recuperacao": rec, "avaliacoes": av, "ausentes": missing,
-             "pontos_atencao": [p["texto"] for p in pts], "sugestoes_motor": tips}
+             "pontos_atencao": [p["texto"] for p in pts], "sugestoes_motor": tips,
+             "prontidao": {"nivel": (ready or {}).get("nivel")}}       # a IA não é chamada em dia de pausa
     return _finish(cfg, db, Report("diario", day, day, doc, summary, missing, facts))
 
 
