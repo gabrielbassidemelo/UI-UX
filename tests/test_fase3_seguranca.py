@@ -411,3 +411,12 @@ def test_zones_need_measured_resting_hr_and_push_is_default_channel(cfg, db):
     finally:
         push.send_push = orig
     assert sent and "Backup" in sent[0]                       # alerta operacional chega com o título, sem limite diário
+
+
+def test_alert_text_shows_rounded_values(cfg, db):
+    import re
+    from healthmon import alerts
+    populate(db, 60, END, stress_last=10)
+    alerts.evaluate(cfg, db, END)
+    msgs = [a["message"] for a in db.alerts(20)]
+    assert msgs and not any(re.search(r"\d\.\d{4,}", m) for m in msgs), msgs

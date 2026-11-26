@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from . import analysis as an
 from .config import Config
 from .db import Database
-from .metrics import METRICS
+from .metrics import METRICS, fmt
 
 TITLES = {
     "hrv_queda_persistente": "HRV abaixo do seu padrão há vários dias",
@@ -54,8 +54,8 @@ def evaluate(cfg: Config, db: Database, day: date) -> list[int]:
         a = persistent_bad(key)
         if a:
             m = METRICS[key]
-            fire(kind, (f"{m.label}: média dos últimos 7 dias {a.as_dict()['media7']} {m.unit} vs. "
-                        f"mediana usual {a.as_dict()['mediana']} {m.unit}; {a.dias_fora7} de 7 dias fora da "
+            fire(kind, (f"{m.label}: média dos últimos 7 dias {fmt(key, a.media7)} vs. "
+                        f"mediana usual {fmt(key, a.base.mediana)}; {a.dias_fora7} de 7 dias fora da "
                         "sua faixa. Considere priorizar descanso e sono; se houver sintomas, procure um profissional."),
                  a.as_dict())
 
