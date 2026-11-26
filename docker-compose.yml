@@ -1,8 +1,9 @@
-# Uso:
+# Uso guiado (recomendado):  ./deploy/oracle/configurar.sh
+# Uso manual:
 #   docker compose run --rm healthmon healthmon init
-#   docker compose run --rm healthmon healthmon login          # uma vez (pede e-mail/senha/MFA)
+#   (grave GARMIN_PERSONAL_API_KEY e HEALTHMON_BACKUP_PASSPHRASE em data/secrets.env)
+#   docker compose run --rm healthmon healthmon validar-garmin
 #   docker compose run --rm healthmon healthmon senha-dashboard
-#   docker compose run --rm healthmon healthmon historico --dias 90
 #   docker compose up -d
 # IA local opcional:  docker compose --profile ia-local up -d   e  [ia] modo = "local", ollama_url = "http://ollama:11434"
 services:
@@ -18,6 +19,8 @@ services:
     tmpfs: ["/tmp"]
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
+    mem_limit: 512m
+    pids_limit: 200
 
   ollama:
     image: ollama/ollama:latest

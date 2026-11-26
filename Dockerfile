@@ -6,7 +6,7 @@ RUN useradd --create-home --uid 10001 healthmon && mkdir /data && chown healthmo
 WORKDIR /app
 COPY pyproject.toml ./
 COPY healthmon ./healthmon
-RUN pip install . && rm -rf /root/.cache
+RUN pip install ".[push,otimizacao]" && rm -rf /root/.cache
 USER healthmon
 VOLUME ["/data"]
 EXPOSE 8765
